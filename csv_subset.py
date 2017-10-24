@@ -3,8 +3,6 @@ import pt, gcsv, os, csv, sys
 import gcsv_2
 import pandas as pd
 
-def foobar():
-    print('foobar!')
 
 def split_rename_csvs(path='dflt', mapfile='dflt'):
     """ updated October 2017, relies upon other gcsv functions
