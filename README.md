@@ -8,3 +8,6 @@ csv_subset.py - code to split and rename csvs, as well as adjust wells to plate 
   (current default arguments need to be adjusted for windows compatibility, use gt.checkdesktop())
 
 gt.py - general tools code, many varied commonly used functions
+
+codesummary.py - summarizes a folder of code and reports functions defined in them. 
+  (lazy path handling, should be updated with gt.checkdesktop())
