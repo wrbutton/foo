@@ -74,7 +74,7 @@ def get_flist(path, ext, shn=False):
 def check_desktop():
     """ grab the current desktop working directory for whichever machine in use,
             need to add additional options to the list if desired """
-    dtops = ['/Volumes/WRBHDD/wrb/Desktop/', '/Users/wrb/Desktop/']
+    dtops = ['/Volumes/WRBHDD/wrb/Desktop/', '/Users/wrb/Desktop/', 'C:/Users/matlab/Desktop/']
     for d in dtops:
         if os.path.exists(d):
             return d
