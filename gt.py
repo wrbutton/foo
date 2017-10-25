@@ -10,6 +10,28 @@ except:
     pass
 
 
+def overlap_matrix(mysets, labels):
+    """ pass in a list of lists/sets of identifiers, and the corresponding names of those
+    collections, and get in return a symmetric dataframe with pairwise count of overlaps amongst groups"""
+    results = pd.DataFrame(index=labels, columns=labels)
+    for cohort, label in zip(mysets,labels):
+        for comp, clabel in zip(mysets,labels):
+            res = len(set(cohort) & set(comp))
+            results.loc[label, clabel] = res
+    return results
+
+
+def isnum(s):
+    """ quick custom test if an object is a number, aka int function can work on it """
+    try:
+        int(s)
+        return True
+    except ValueError:
+        return False
+    except TypeError:
+        return False
+
+
 def hsub(h, arg_dict):
     """ takes in dictionary of {param: value} to scrape folder and return data meeting criteria,
     dictionary value may be a list, in which case any value of list is acceptable.
