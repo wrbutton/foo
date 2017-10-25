@@ -58,7 +58,7 @@ def txt2list(file):
         for line in f:
             n = line.split('\t')
             mylist.append([x.strip() for x in n])
-    if max([len(x.split('\t')) for x in mylist]) == 1:
+    if max([len(x) for x in mylist]) == 1:
         mylist = [x[0] for x in mylist]
     return mylist
 
