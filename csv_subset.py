@@ -1,6 +1,4 @@
-
-import pt, gcsv, os, csv, sys
-import gcsv_2
+import pt, gcsv, os, csv, sys, gt
 import pandas as pd
 
 
@@ -12,17 +10,21 @@ def split_rename_csvs(path='dflt', mapfile='dflt'):
     assumes to be in target directory named 'mapping.xlsx'
     Can use same Det Well as Destination well if simply want to split out
     
-    CSV Name	            Det Well	Destination
-    ITP549_DP52_RPTWLS.csv	E1	                C11
-    ITP549_DP52_RPTWLS.csv	F1	                D11
-    ITP553_DP52_RPTWLS.csv	I1	                C11
-    ITP553_DP52_RPTWLS.csv	J1	                D11
+    CSV Name              Det Well  Destination
+    ITP549_DP52_RPTWLS.csv  E1                  C11
+    ITP549_DP52_RPTWLS.csv  F1                  D11
+    ITP553_DP52_RPTWLS.csv  I1                  C11
+    ITP553_DP52_RPTWLS.csv  J1                  D11
     """
     if path is 'dflt':
-        path = '/Users/WRB/Desktop/splitcsv/'
+        paths = ['/Users/WRB/Desktop/splitcsv/', 'C:/Users/matlab/Desktop/Working/']
+        for d in paths:
+            if os.path.exists(d):
+                path = d
+    
     if mapfile is 'dflt':
         mapfile = os.path.join(path, 'mapping.xlsx')
-
+    
     try:
         # load the plate/well remapping file
         m = pd.read_excel(mapfile)
@@ -47,16 +49,16 @@ def split_rename_csvs(path='dflt', mapfile='dflt'):
         outpath = os.path.join(path, csv_file)
         # convert dataframe of excel remapping into an easy dictionary
         dest = list(subm['Destination'].values)
-        src = gcsv_2.get_2char_ids(list(subm['Det Well'].values))
-        dest = gcsv_2.get_2char_ids(list(subm['Destination'].values))
+        src = gcsv.get_2char_ids(list(subm['Det Well'].values))
+        dest = gcsv.get_2char_ids(list(subm['Destination'].values))
         mydict = dict(zip(src, dest))
         # then call on the split_csv command in gcsv module
         if 'DP52' in csv_file:
             print(os.path.split(src_52_csv)[-1] + ' => ' + csv_file)
-            gcsv_2.split_out_csv(src_52_csv, mydict, outpath)
+            gcsv.split_out_csv(src_52_csv, mydict, outpath)
         elif 'DP53' in csv_file:
             print(os.path.split(src_53_csv)[-1] + ' => ' + csv_file)
-            gcsv_2.split_out_csv(src_53_csv, mydict, outpath)
+            gcsv.split_out_csv(src_53_csv, mydict, outpath)
         else:
             print('no match')
 
@@ -68,9 +70,16 @@ def adj_rptwls_to_plates(platepath='dflt', subpath='dflt'):
     in the plates folder, and if present adj_vectors will be made on a per-batch basis """
 
     if platepath is 'dflt':
-        platepath = '/Users/WRB/Desktop/plates/'
+        paths = ['/Users/WRB/Desktop/plates/', 'C:/Users/matlab/Desktop/Processing/']
+        for d in paths:
+            if os.path.exists(d):
+                platepath = d
+        
     if subpath is 'dflt':
-        subpath = '/Users/WRB/Desktop/rpts/'
+        paths = ['/Users/WRB/Desktop/rpts/', 'C:/Users/matlab/Desktop/Working/']
+        for d in paths:
+            if os.path.exists(d):
+                subpath = d
 
     pflist = pt.get_flist(platepath, '.csv')
     sflist = pt.get_flist(subpath, '.csv')
@@ -111,7 +120,7 @@ def adj_rptwls_to_plates(platepath='dflt', subpath='dflt'):
                 pbmed = dp[pids].median(axis=1)
                 sbmed = ds[sids].median(axis=1)
                 badjvect[b] = round(pbmed - sbmed)
-            gcsv_2.adj_csv(subfile, adj_vect=badjvect, pmap=m)
+            gcsv.adj_csv(subfile, adj_vect=badjvect, pmap=m)
         # if no mapfile present, proceed with single batch adj_vect
         else:
             print('adjusting ' + s)
@@ -120,7 +129,7 @@ def adj_rptwls_to_plates(platepath='dflt', subpath='dflt'):
             d = gcsv.open_as_gct(subfile)
             submed = d.median(axis=1)
             diff_vect = round(pmed - submed)
-            gcsv_2.adj_csv(subfile, adj_vect=diff_vect)
+            gcsv.adj_csv(subfile, adj_vect=diff_vect)
 
 
 def adj_fillin_wells(path='dflt', top=True, bot=True):
@@ -129,7 +138,10 @@ def adj_fillin_wells(path='dflt', top=True, bot=True):
      adj_vectors are prepared and passed through"""
 
     if path is 'dflt':
-        path = '/Users/WRB/Desktop/plates/'
+        paths = ['/Users/WRB/Desktop/plates/', 'C:/Users/matlab/Desktop/Processing/']
+        for d in paths:
+            if os.path.exists(d):
+                path = d
 
     try:
         pflist = pt.get_flist(path, '.csv')
@@ -140,9 +152,11 @@ def adj_fillin_wells(path='dflt', top=True, bot=True):
 
     mywells = []
     if top is True:
-        mywells.extend(pt.txt2list('/Users/wrb/Dropbox/bin/python/topwells.txt', single=True))
+        mywells.extend(gt.well_range("C","F",11,14))
+        #mywells.extend(pt.txt2list('/Users/wrb/Dropbox/bin/python/topwells.txt', single=True))
     if bot is True:
-        mywells.extend(pt.txt2list('/Users/wrb/Dropbox/bin/python/botwells.txt', single=True))
+        mywells.extend(gt.well_range("K","N",11,14))
+        #mywells.extend(pt.txt2list('/Users/wrb/Dropbox/bin/python/botwells.txt', single=True))
 
     mshn = {}
     for m in maplist:
@@ -168,7 +182,7 @@ def adj_fillin_wells(path='dflt', top=True, bot=True):
                 pbmed = d[pids].median(axis=1)
                 sbmed = d[sids].median(axis=1)
                 badjvect[b] = round(pbmed - sbmed)
-            gcsv_2.adj_csv(platefile, mywells=mywells, adj_vect=badjvect, pmap=m)
+            gcsv.adj_csv(platefile, mywells=mywells, adj_vect=badjvect, pmap=m)
         # otherwise just proceed with single batch adjustment
         else:
             print('adjusting ' + plate_name)
@@ -176,7 +190,6 @@ def adj_fillin_wells(path='dflt', top=True, bot=True):
             sub = d[mywells]
             submed = sub.median(axis=1)
             diff_vect = round(pmed - submed)
-            gcsv_2.adj_csv(platefile, mywells=mywells, adj_vect=diff_vect)
-
+            gcsv.adj_csv(platefile, mywells=mywells, adj_vect=diff_vect)
 
 
