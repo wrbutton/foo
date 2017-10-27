@@ -1,13 +1,44 @@
 #!/usr/bin/python
 """ this is a general tools script which contains many common handy functions """
 
-import os, csv, glob, string, shutil
+import os, csv, glob, string, shutil, gt
 import pandas as pd
 import collections as cll
 try:
     import pyperclip
 except:
     pass
+
+
+def gather_rows(path, searchstring, ext='all', save=False):
+    """" extract rows from files in directory matching string, with optional file extension """
+    flist = get_flist(path, ext)
+    results = []
+    if isinstance(searchstring, str):
+        searchstring = [searchstring]
+    for file in flist:
+        with open(file, 'r') as f:
+            for line in f:
+                if any([x in line for x in searchstring]):
+                    results.append(os.path.split(file)[-1] + '\t' + line)
+
+    if save is True:
+        outpath = os.path.join(path, searchstring[0] + '_rows.txt')
+        with open(outpath, 'w', newline='') as outf:
+            for line in results:
+                outf.write(line)
+    else:
+        return results
+
+
+def dflt_outpath(path, fldr_name):
+    if path is 'dflt':
+        path = gt.check_desktop() + fldr_name
+    try:
+        os.makedirs(path)
+    except OSError:
+        pass
+    return path
 
 
 def overlap_matrix(mysets, labels):
@@ -69,7 +100,7 @@ def get_shn(file):
     return shn
 
 
-def get_flist(path, ext, shn=False):
+def get_flist(path, ext='all', shn=False):
     """ assemble list of absolute paths of files in top level of folder
             with specified file extension, if shn=true return dictionary of
             with key as shortname and value as full file path in addition to flist"""
@@ -79,8 +110,11 @@ def get_flist(path, ext, shn=False):
             fullfilename = os.path.abspath(os.path.join(path, input_file))
             # exclude hidden files and filter for extensions
             if input_file[0] != '.':
-                if input_file.endswith(ext):
+                if ext is 'all':
                     f_list.append(fullfilename)
+                elif ext is not 'all':
+                    if input_file.endswith(ext):
+                        f_list.append(fullfilename)
         # build out {shn: fullname} dictionary
         if shn is True:
             shnd = {}
@@ -253,10 +287,12 @@ def get_awells():
     return awells
 
 
-def well_range(startlet, stoplet, startcol, endcol):
+def well_range(upper_left, lower_right):
     """ returns list of 3char ids of all wells within provided rectangle coords """
     well_list = []
     alpha = string.ascii_uppercase
+    startlet, startcol = upper_left[0], int(upper_left[1:])
+    stoplet, endcol = lower_right[0], int(lower_right[1:])
     startpos = alpha.index(startlet)
     stoppos = alpha.index(stoplet)
     for l in alpha[startpos:stoppos + 1]:
