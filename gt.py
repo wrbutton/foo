@@ -31,13 +31,15 @@ def gather_rows(path, searchstring, ext='all', save=False):
         return results
 
 
-def dflt_outpath(path, fldr_name):
+def dflt_outpath(path, fldr_name, fn=None):
     if path is 'dflt':
         path = gt.check_desktop() + fldr_name
     try:
         os.makedirs(path)
     except OSError:
         pass
+    if fn:
+        path = os.path.join(path, fn)
     return path
 
 
