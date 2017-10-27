@@ -357,6 +357,7 @@ class Gct(object):
         userows = [2]
         # test if ids are genes to extract index
         if ids[0] in self.genes:
+            print('subset by gene')
             for gene in ids:
                 rows.append(self.genes.index(gene))
             userows.extend([x + self.skrows for x in rows])
@@ -365,11 +366,11 @@ class Gct(object):
             data.drop(data.columns[range(0, self.hcols)], axis=1, inplace=True)
             return data, h
         # or if ids are wells to extract columns
-        print(ids[0])
-        if any([ids[0] in x for x in [h.index, h['addr'], h['well']]]):
+        if any([ids[0] in x for x in [h.index.values, h['addr'].values, h['well'].values]]):
+            print('subset by well id')
             if ids[0] in h['well'].values:
                 print('found match in well col ', ids[0])
-                ids = [self.shortname + x for x in ids]
+                ids = [self.shortname + ':' + x for x in ids]
             if ids[0] in h['addr']:
                 subh = h[h['addr'].isin(ids)]
             elif ids[0] in h.index.values:
@@ -382,7 +383,6 @@ class Gct(object):
             data = pd.read_csv(self.file, sep='\t', index_col=0, skiprows=self.skrows+1,
                                usecols=coli, header=None)
             data.columns = cols
-            print(data.columns)
             return data, subh
 
 
