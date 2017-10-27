@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import gct, pt, os
+import gct, pt, os, gt
 
 
 
@@ -29,7 +29,6 @@ def assemble_poscons_from_files(path):
 def assemble_data_from_files(path, arg_dict):
     """ takes in dictionary of {param: value} to scrape the given gct file and return data meeting ALL"""
     d, h = gct.extractgct(path)
-    arglist = []
     sh = h
     for c, v in arg_dict.items():
         if isinstance(v, str):
@@ -44,23 +43,38 @@ def assemble_data_from_files(path, arg_dict):
     return d[sh.index.values], sh
 
 
+def cheap_assemble_data_from_files(path, arg_dict):
+    """ takes in dictionary of {param: value} to scrape the given gct file and return data meeting ALL"""
+    g = gct.Gct(path)
+    g.get_headers()
+    sh = gt.hsub(g.fh, arg_dict)
+    ds, hs = g.build_sample_subset(sh.index.values)
+    print(str(len(sh.index.values)) + ' wells taken from ' + gt.get_shn(path))
+    return ds, sh
 
-def grab_data_from_folder(path, arg_dict):
+
+def grab_data_from_folder(path, arg_dict, save=False, outpath='dflt'):
     """ takes in dictionary of {param: value} to scrape the given folder for all gct files and return data meeting ALL"""
     flist = pt.get_flist(path, '.gct')
     dlist, hlist = [], []
     for f in flist:
-        sd, sh = assemble_data_from_files(f, arg_dict)
+        sd, sh = cheap_assemble_data_from_files(f, arg_dict)
         dlist.append(sd)
         hlist.append(sh)
     d = pd.concat(dlist, axis=1)
     h = pd.concat(hlist, axis=0)
     d.index.name = ''
-    # if rename == True:
-    #     h['hdr'] = h.index + ':' + h.name
-    #     d.columns = h.hdr
-    # elif rename == 'dose':
-    #     h['hdr'] = h.index + ':' + h.dose + ':' + h.name
-    #     d.columns = h.hdr
-    return d, h
+    if save is True:
+        fold = os.path.basename(os.path.dirname(path))
+        name = ''
+        for k, v in arg_dict.items():
+            name += ',{}-{}'.format(k,v)
+        name += '.gct'
+        name = fold + name
+        print(name)
+        outpath = gt.dflt_outpath(outpath, 'foo', fn=name)
+        print(outpath)
+        gct.save_headergct(d, outpath, h)
+    else:
+        return d, h
 
