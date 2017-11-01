@@ -1,6 +1,6 @@
 # gwhq code repository
 
-uploaded 10/23/17 with initial code
+uploaded 10/25/17 with more code
 
 gcsv.py - gwhq csv class definition, which also includes functions to read and save csvs
 
@@ -9,3 +9,5 @@ csv_subset.py - code to split and rename csvs, as well as adjust wells to plate 
 
 gt.py - general tools code, many varied commonly used functions
 
+codesummary.py - summarizes a folder of code and reports functions defined in them. 
+  (lazy path handling, should be updated with gt.checkdesktop())

@@ -1,13 +1,70 @@
 #!/usr/bin/python
 """ this is a general tools script which contains many common handy functions """
 
-import os, csv, glob, string, shutil
+import os, csv, glob, string, shutil, gt
 import pandas as pd
 import collections as cll
 try:
     import pyperclip
 except:
     pass
+
+
+def gather_rows(path, searchstring, ext='all', save=False):
+    """" extract rows from files in directory matching string, with optional file extension """
+    flist = get_flist(path, ext)
+    results = []
+    if isinstance(searchstring, str):
+        searchstring = [searchstring]
+    for file in flist:
+        with open(file, 'r') as f:
+            for line in f:
+                if any([x in line for x in searchstring]):
+                    results.append(os.path.split(file)[-1] + '\t' + line)
+
+    if save is True:
+        outpath = os.path.join(path, searchstring[0] + '_rows.txt')
+        with open(outpath, 'w', newline='') as outf:
+            for line in results:
+                outf.write(line)
+    else:
+        return results
+
+
+def dflt_outpath(fldr_name='dflt', path='dflt', fn=None):
+    if path is 'dflt':
+        path = gt.check_desktop()
+    if fldr_name is 'dflt':
+        path = path + 'foo'
+    if fn:
+        path = os.path.join(path, fn)
+    try:
+        os.makedirs(path)
+    except OSError:
+        pass
+    return path
+
+
+def overlap_matrix(mysets, labels):
+    """ pass in a list of lists/sets of identifiers, and the corresponding names of those
+    collections, and get in return a symmetric dataframe with pairwise count of overlaps amongst groups"""
+    results = pd.DataFrame(index=labels, columns=labels)
+    for cohort, label in zip(mysets,labels):
+        for comp, clabel in zip(mysets,labels):
+            res = len(set(cohort) & set(comp))
+            results.loc[label, clabel] = res
+    return results
+
+
+def isnum(s):
+    """ quick custom test if an object is a number, aka int function can work on it """
+    try:
+        int(s)
+        return True
+    except ValueError:
+        return False
+    except TypeError:
+        return False
 
 
 def hsub(h, arg_dict):
@@ -36,7 +93,7 @@ def txt2list(file):
         for line in f:
             n = line.split('\t')
             mylist.append([x.strip() for x in n])
-    if max([len(x.split('\t')) for x in mylist]) == 1:
+    if max([len(x) for x in mylist]) == 1:
         mylist = [x[0] for x in mylist]
     return mylist
 
@@ -47,7 +104,7 @@ def get_shn(file):
     return shn
 
 
-def get_flist(path, ext, shn=False):
+def get_flist(path, ext='all', shn=False):
     """ assemble list of absolute paths of files in top level of folder
             with specified file extension, if shn=true return dictionary of
             with key as shortname and value as full file path in addition to flist"""
@@ -57,8 +114,11 @@ def get_flist(path, ext, shn=False):
             fullfilename = os.path.abspath(os.path.join(path, input_file))
             # exclude hidden files and filter for extensions
             if input_file[0] != '.':
-                if input_file.endswith(ext):
+                if ext is 'all':
                     f_list.append(fullfilename)
+                elif ext is not 'all':
+                    if input_file.endswith(ext):
+                        f_list.append(fullfilename)
         # build out {shn: fullname} dictionary
         if shn is True:
             shnd = {}
@@ -74,7 +134,7 @@ def get_flist(path, ext, shn=False):
 def check_desktop():
     """ grab the current desktop working directory for whichever machine in use,
             need to add additional options to the list if desired """
-    dtops = ['/Volumes/WRBHDD/wrb/Desktop/', '/Users/wrb/Desktop/']
+    dtops = ['/Volumes/WRBHDD/wrb/Desktop/', '/Users/wrb/Desktop/', 'C:/Users/matlab/Desktop/']
     for d in dtops:
         if os.path.exists(d):
             return d
@@ -99,8 +159,14 @@ def tolist(mystring, spl='_', uniq=False):
         return set(lst)
 
 
-def addr_id_df(df):
-    """ convert dataframe into plate:well format column headers"""
+def addr_id_df(df, p=None):
+    """ convert dataframe into plate:well format column headers, if l is true just convert list"""
+    if p is not None:
+        if ':' not in df[0]:
+            df = [p + ':' + w for w in df]
+        else:
+            print('already composite addr')
+        return df
     if len(df.columns[1]) == 3:
         df.columns = df.shortname.split('-')[0] + ':' + df.columns
     elif len(df.columns[1]) != 3:
@@ -231,10 +297,12 @@ def get_awells():
     return awells
 
 
-def well_range(startlet, stoplet, startcol, endcol):
+def well_range(upper_left, lower_right):
     """ returns list of 3char ids of all wells within provided rectangle coords """
     well_list = []
     alpha = string.ascii_uppercase
+    startlet, startcol = upper_left[0], int(upper_left[1:])
+    stoplet, endcol = lower_right[0], int(lower_right[1:])
     startpos = alpha.index(startlet)
     stoppos = alpha.index(stoplet)
     for l in alpha[startpos:stoppos + 1]:
