@@ -418,8 +418,11 @@ class Gcsv(object):
         df = self.build_dframe()
         new_index = get_3char_ids(df.index)
         df.index = new_index
-        # ref_file = '/Users/WRB/Dropbox/bin/python/analytes_to_probes_dict.p'
-        ref_file = '/Users/WRB/Dropbox/bin/python/analytes_to_probes_dict.p'
+        paths = ['C:/Users/matlab/Desktop/Python Scripts/analytes_to_probes_dict.p', '/Users/WRB/Dropbox/bin/python/analytes_to_probes_dict.p']
+        for d in paths:
+            if os.path.exists(d):
+                ref_file = d
+        #ref_file = '/Users/WRB/Dropbox/bin/python/analytes_to_probes_dict.p'
         analyte_dict = pickle.load(open(ref_file, 'rb'))
         if 'DP52' in self.file:
             beadset_dict = analyte_dict['dp52']
@@ -439,5 +442,4 @@ class Gcsv(object):
         df.index = wells
         df = df.T
         return df
-
 
