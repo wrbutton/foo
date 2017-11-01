@@ -294,5 +294,65 @@ def plot_gene_cohorts(f, outpath='dflt', genes='test2', mode='ind'):
         plt.close()
 
 
+def prep_vctr(vctr, order='row'):
+    new_index = get_awells()
+    if any(vctr.index.str.contains(':')):
+        pname = vctr.index.values[0].split(':')[0]
+        new_index = [pname + ':' + x for x in new_index]
+    awells = pd.Series(np.nan * 384, index=new_index)
+    # merge the new wells onto an array of 384 in order to keep spacing
+    fvctr = awells.combine_first(vctr)
+    if order is 'col':
+        print('plotting in column order')
+        # create a new sorted vector by sorting by number first, then row
+        svctr = fvctr.loc[sorted(fvctr.index.values, key=lambda x: (x[1:],x[0]))]
+    else:
+        # sort vector samples by well row value by default
+        svctr = fvctr.loc[sorted(fvctr.index)]
+    return svctr
+
+
+def make_plateplot(vctr, outpath='dflt', label=vctr.name, cmap='inferno'):
+    if outpath is 'dflt':
+        outpath = gt.dflt_outpath(fn=vctr.name)
+    fig, ax = plt.subplots()
+    # set additional title and axis
+    ax.set_ylabel(label, fontsize=16)
+    row_labels = list(string.ascii_uppercase[0:16])
+    row_range = list(np.arange(16))
+    ax.set_yticks(row_range, row_labels, fontsize=8)
+    col_labels = list(np.arange(1,25))
+    col_range = list(np.arange(0,24))
+    ax.set_xticks(col_range, col_labels, fontsize=9)
+    ax.set_tick_params(labelright=True, labeltop=True)
+    # this sets the tick length to zero, but leaves labels
+    plt.tick_params(axis=u'both', which=u'both',length=0)
+    # reshape array and plot
+    d = vctr.values.reshape(16,24)
+    im = plt.imshow(d, interpolation='nearest', cmap=cmap)
+    # use matplotlib axes1 to keep colorbars in line with figs
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes('right', size='5%', pad=0.3)
+    cbar = plt.colorbar(im, cax=cax)
+    cbar.ax.tick_params(labelsize=9)
+    # simplify colorbar to 5 points including max/min
+    mx, mn = vctr.max(), vctr.min()
+    mid = (mx + mn) / 2
+    svth = mid + ((mx - mid)/2)
+    twth = (mid - ((mx - mid)/2))
+    things = [mn, twth, mid, svth, mx]
+    # things = [mn, mid, mx]
+    thingsl = ['{:.1f}'.format(x) for x in things]
+    cbar.set_ticks(things)
+    cbar.set_ticklabels(thingsl)
+    plt.tight_layout()
+    if not outpath.endswith('.png'):
+        outpath += '.png'
+    plt.savefig(outpath)
+
+
+def main():
+    pass
+
 if __name__ == '__main__':
     main()
