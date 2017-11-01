@@ -22,7 +22,7 @@ method for taking the average or the median of a panel.
 import pandas as pd
 import numpy as np
 import collections as cll
-import os, csv, sys, pickle, pt
+import os, csv, sys, pickle, pt, gt
 
 def gather_wells(path, wellfile):
     # reads from a text file ('MKD031:A03' one or many per line) to assemble a dataframe
@@ -60,7 +60,7 @@ def dfsubset(path, wids):
     """ build a dataframe with only a selection of wells as samples, will create the dataframe in
     a memory friendly way, only loading those lines rather than opening the whole file to memory """
     g = Gct(path)
-    g.get_headers()
+    h = g.get_headers()
     g.get_features()
     d, h = g.build_subset(wids)
     return d, h
@@ -194,19 +194,33 @@ def save_dfgct(gct, df, outpath):
 def get_hd():
     hd = {'batch':'batch',     'det_well':'well',             'det_plate':'plate',
                 'dose':'dose',         'concentration':'dose',    'pert_type':'type',
-                'cell_id':'cell',    'pert_desc':'name',            'dilution':'dose', 'addr':'addr'}
+                'cell_id':'cell',    'pert_desc':'name',            'dilution':'dose', 'addr':'addr',
+          'dose [M]':'dose'}
     return hd
 
 
 def extractgct(path):
     g = Gct(path)
-    d = g.build_dframe()
+    d, h = g.build_dframe()
     d.name = g.shortname
-    try:
-        h = g.fh
-    except AttributeError:
-        h = None
     return d, h
+
+
+def extractheader(path):
+    if path.endswith('.gct'):
+        g = Gct(path)
+        h = g.get_headers()
+        return h
+    # else assume
+    hd = get_hd()
+    if path.endswith('.txt'):
+        m = pd.read_table(path)
+    elif path.endswith('.xlsx') or path.endswith('.xls'):
+        m = pd.read_excel(path)
+    m.set_index('well', inplace=True)
+    m.columns = [hd[x] if x in hd.keys() else x for x in m.columns]
+    m.index = gt.addr_id_df(m.index, p=gt.get_shn(path).split('.')[0])
+    return m
 
 
 class Gct(object):
@@ -284,11 +298,12 @@ class Gct(object):
                     self.doses = fh[fh.index.isin(self.test)]['dose'].unique()
                 except KeyError:
                     pass
+            return fh
 
     def get_features(self):
         self.genes = []
         if not hasattr(self, 'skrows'):
-            self.get_headers()
+            h = self.get_headers()
         with open(self.file, 'rU') as in_file:
             for i in range(self.skrows):
                 in_file.readline()
@@ -303,7 +318,7 @@ class Gct(object):
 
     def build_dframe(self, nullempt=False):
         # open file and extract the gct header information, storing dictionary values
-        self.get_headers()
+        h = self.get_headers()
         # assign the extracted array to data variable
         data = pd.read_csv(self.file, sep='\t', index_col=0, skiprows=self.skrows)
         data.drop(data.columns[range(0,self.hcols)], axis=1, inplace=True)
@@ -313,14 +328,14 @@ class Gct(object):
         # null out the process control wells
         if nullempt == True:
             data = self.null_empty(data)
-        return data
+        return data, h
 
     def build_sample_subset(self, wellids):
         # extract a subset of wells from a gct into a dataframe, without loading full
         # well ids should be supplied as full plate:well 9 character well ids
-        self.get_headers()
+        h = self.get_headers()
+        self.get_features()
         coli = []
-        h = self.fh
         # try loading both the index and addr column to have a match for the column ids
         # for both single items as well as list for the col/row ids
         if isinstance(wellids, str):
@@ -341,14 +356,12 @@ class Gct(object):
         data = pd.read_csv(self.file, sep='\t', index_col=0, skiprows=self.skrows+1,
                            usecols=coli, header=None)
         data.columns = cols
-        print(data.columns)
         return data, subh
 
     def build_subset(self, ids):
         # extract a subset of wells from a gct into a dataframe, without loading full
         # well ids should be supplied as full plate:well 9 character well ids
-        self.get_headers()
-        h = self.fh
+        h = self.get_headers()
         cols, coli = [], []
         rows = []
         # wrap a single id in a list so can iterate with the same code

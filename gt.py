@@ -31,15 +31,17 @@ def gather_rows(path, searchstring, ext='all', save=False):
         return results
 
 
-def dflt_outpath(path, fldr_name, fn=None):
+def dflt_outpath(fldr_name='dflt', path='dflt', fn=None):
     if path is 'dflt':
-        path = gt.check_desktop() + fldr_name
+        path = gt.check_desktop()
+    if fldr_name is 'dflt':
+        path = path + 'foo'
+    if fn:
+        path = os.path.join(path, fn)
     try:
         os.makedirs(path)
     except OSError:
         pass
-    if fn:
-        path = os.path.join(path, fn)
     return path
 
 
@@ -157,8 +159,14 @@ def tolist(mystring, spl='_', uniq=False):
         return set(lst)
 
 
-def addr_id_df(df):
-    """ convert dataframe into plate:well format column headers"""
+def addr_id_df(df, p=None):
+    """ convert dataframe into plate:well format column headers, if l is true just convert list"""
+    if p is not None:
+        if ':' not in df[0]:
+            df = [p + ':' + w for w in df]
+        else:
+            print('already composite addr')
+        return df
     if len(df.columns[1]) == 3:
         df.columns = df.shortname.split('-')[0] + ':' + df.columns
     elif len(df.columns[1]) != 3:
