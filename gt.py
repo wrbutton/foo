@@ -10,6 +10,22 @@ except:
     pass
 
 
+def stack_files(path, orient='vert'):
+    dlist = []
+    fl = get_flist(path, ext='.txt')
+    for f in fl:
+        dat = pd.read_table(f, index_col=0)
+        dlist.append(dat)
+    if orient is 'vert':
+        myaxis = 0
+    else:
+        myaxis = 1
+    data = pd.concat(dlist, axis=myaxis)
+    fn = os.path.basename(os.path.dirname(path)) + '_joined.txt'
+    outpath = os.path.join(path, fn)
+    data.to_csv(outpath, sep='\t')
+
+
 def gather_rows(path, searchstring, ext='all', save=False):
     """" extract rows from files in directory matching string, with optional file extension """
     flist = get_flist(path, ext)
@@ -31,17 +47,16 @@ def gather_rows(path, searchstring, ext='all', save=False):
         return results
 
 
-def dflt_outpath(fldr_name='dflt', path='dflt', fn=None):
+def dflt_outpath(fldr_name='foo', path='dflt', fn=None):
     if path is 'dflt':
         path = gt.check_desktop()
-    if fldr_name is 'dflt':
-        path = path + 'foo'
-    if fn:
-        path = os.path.join(path, fn)
+    path = path + fldr_name
     try:
         os.makedirs(path)
     except OSError:
         pass
+    if fn:
+        path = os.path.join(path, fn)
     return path
 
 
@@ -74,9 +89,9 @@ def hsub(h, arg_dict):
     sh = h
     for c, v in arg_dict.items():
         if isinstance(v, str):
-            sh = sh[sh[c] == v]
+            sh = sh[sh[str(c)] == str(v)]
         elif isinstance(v, list):
-            sh = sh[sh[c].isin(v)]
+            sh = sh[sh[str(c)].isin([str(x) for x in v])]
         else:
             print('error with filter dictionary value')
     if len(sh.index.values) == 0:
@@ -134,7 +149,7 @@ def get_flist(path, ext='all', shn=False):
 def check_desktop():
     """ grab the current desktop working directory for whichever machine in use,
             need to add additional options to the list if desired """
-    dtops = ['/Volumes/WRBHDD/wrb/Desktop/', '/Users/wrb/Desktop/', 'C:/Users/matlab/Desktop/']
+    dtops = ['/Volumes/WRBHDD/wrb/Desktop/', '/Users/wrb/Desktop/']
     for d in dtops:
         if os.path.exists(d):
             return d
