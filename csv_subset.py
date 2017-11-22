@@ -1,4 +1,5 @@
-import pt, gcsv, os, csv, sys, gt
+
+import gt, gcsv, os, csv, sys
 import pandas as pd
 
 
@@ -10,26 +11,22 @@ def split_rename_csvs(path='dflt', mapfile='dflt'):
     assumes to be in target directory named 'mapping.xlsx'
     Can use same Det Well as Destination well if simply want to split out
     
-    CSV Name              Det Well  Destination
-    ITP549_DP52_RPTWLS.csv  E1                  C11
-    ITP549_DP52_RPTWLS.csv  F1                  D11
-    ITP553_DP52_RPTWLS.csv  I1                  C11
-    ITP553_DP52_RPTWLS.csv  J1                  D11
+    CSV Name	            Det Well	Destination
+    ITP549_DP52_RPTWLS.csv	E1	                C11
+    ITP549_DP52_RPTWLS.csv	F1	                D11
+    ITP553_DP52_RPTWLS.csv	I1	                C11
+    ITP553_DP52_RPTWLS.csv	J1	                D11
     """
     if path is 'dflt':
-        paths = ['/Users/WRB/Desktop/splitcsv/', 'C:/Users/matlab/Desktop/Working/']
-        for d in paths:
-            if os.path.exists(d):
-                path = d
-    
+        path = '/Users/WRB/Desktop/splitcsv/'
     if mapfile is 'dflt':
-        mapfile = os.path.join(path, 'mapping.xlsx')
-    
+        mapfile = gt.get_flist(path, 'mapping.xlsx')[0]
+
     try:
         # load the plate/well remapping file
         m = pd.read_excel(mapfile)
         dest_csvs = m['CSV Name'].unique()
-        src_csvs = pt.get_flist(path, '.csv')
+        src_csvs = gt.get_flist(path, '.csv')
     except:
         sys.exit(" dflt path is '/Users/WRB/Desktop/splitcsv/' and assumes 1 csv and mapping.xlsx")
 
@@ -70,21 +67,14 @@ def adj_rptwls_to_plates(platepath='dflt', subpath='dflt'):
     in the plates folder, and if present adj_vectors will be made on a per-batch basis """
 
     if platepath is 'dflt':
-        paths = ['/Users/WRB/Desktop/plates/', 'C:/Users/matlab/Desktop/Processing/']
-        for d in paths:
-            if os.path.exists(d):
-                platepath = d
-        
+        platepath = '/Users/WRB/Desktop/plates/'
     if subpath is 'dflt':
-        paths = ['/Users/WRB/Desktop/rpts/', 'C:/Users/matlab/Desktop/Working/']
-        for d in paths:
-            if os.path.exists(d):
-                subpath = d
+        subpath = '/Users/WRB/Desktop/rpts/'
 
-    pflist = pt.get_flist(platepath, '.csv')
-    sflist = pt.get_flist(subpath, '.csv')
+    pflist = gt.get_flist(platepath, '.csv')
+    sflist = gt.get_flist(subpath, '.csv')
     sflist = [x for x in sflist if 'adjusted' not in x]
-    maplist = [x for x in pt.get_flist(platepath, '.xlsx')]
+    maplist = [x for x in gt.get_flist(platepath, '.xlsx')]
 
     pshn, sshn = {}, {}
 
@@ -132,41 +122,38 @@ def adj_rptwls_to_plates(platepath='dflt', subpath='dflt'):
             gcsv.adj_csv(subfile, adj_vect=diff_vect)
 
 
-def adj_fillin_wells(path='dflt', top=True, bot=True):
+def adj_fillin_wells(path='dflt', wells='top,bot'):
     """ adjust full csv files for the traditional Turbocapture problem areas, default top and bottom
      if a given plate map file is present in the folder for a given plate, then individual batch
      adj_vectors are prepared and passed through"""
 
     if path is 'dflt':
-        paths = ['/Users/WRB/Desktop/plates/', 'C:/Users/matlab/Desktop/Processing/']
-        for d in paths:
-            if os.path.exists(d):
-                path = d
+        path = '/Users/WRB/Desktop/plates/'
 
     try:
-        pflist = pt.get_flist(path, '.csv')
-        maplist = pt.get_flist(path, '.xlsx')
+        pflist = gt.get_flist(path, '.csv')
+        maplist = gt.get_flist(path, '.xlsx')
         pflist = [x for x in pflist if 'adjusted' not in x]
     except:
         sys.exit("dflt path is '/Users/WRB/Desktop/plates/' and top/bot = True")
 
     mywells = []
-    if top is True:
-        mywells.extend(gt.well_range("C","F",11,14))
-        #mywells.extend(pt.txt2list('/Users/wrb/Dropbox/bin/python/topwells.txt', single=True))
-    if bot is True:
-        mywells.extend(gt.well_range("K","N",11,14))
-        #mywells.extend(pt.txt2list('/Users/wrb/Dropbox/bin/python/botwells.txt', single=True))
+    if 'top' in wells:
+        mywells.extend(gt.well_range("C11", "F14"))
+    if 'bot' in wells:
+        mywells.extend(gt.well_range("K11", "N14"))
+    else:
+        mywells = wells
 
     mshn = {}
     for m in maplist:
-        sh = pt.get_shn(m).strip('.xlsx')
+        sh = gt.get_shn(m).strip('.xlsx')
         print(sh)
         mshn[sh] = m
     print(maplist)
 
     for platefile in pflist:
-        plate_name = pt.get_shn(platefile)
+        plate_name = gt.get_shn(platefile)
         d = gcsv.open_as_gct(platefile)
         # if excel map file is in directory, cycle through to get batch adj vectors
         if plate_name in mshn.keys():
@@ -191,5 +178,6 @@ def adj_fillin_wells(path='dflt', top=True, bot=True):
             submed = sub.median(axis=1)
             diff_vect = round(pmed - submed)
             gcsv.adj_csv(platefile, mywells=mywells, adj_vect=diff_vect)
+
 
 

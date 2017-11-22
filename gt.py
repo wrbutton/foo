@@ -128,7 +128,7 @@ def get_flist(path, ext='all', shn=False):
         for input_file in os.listdir(path):
             fullfilename = os.path.abspath(os.path.join(path, input_file))
             # exclude hidden files and filter for extensions
-            if input_file[0] != '.':
+            if input_file[0] != '.' and input_file[0] != '$':
                 if ext is 'all':
                     f_list.append(fullfilename)
                 elif ext is not 'all':

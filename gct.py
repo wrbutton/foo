@@ -256,6 +256,7 @@ class Gct(object):
             self.addr = [x.strip() for x in line.split('\t')[self.scol:]]
             if self.hrows == 0:
                 self.wells = [x.strip() for x in line.split('\t')[self.scol:]]
+                fh = None
             # otherwise look through header lines and extract well row
             else:
                 # for internal format gcts, internal metadata
