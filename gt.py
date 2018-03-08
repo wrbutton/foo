@@ -3,11 +3,64 @@
 
 import os, csv, glob, string, shutil, gt
 import pandas as pd
+import numpy as np
 import collections as cll
 try:
     import pyperclip
 except:
     pass
+
+def get_genes(genes, df=None):
+    # check for gene arguments, and fill 'test' and 'all'
+    if genes is 'test1':
+        genes = ['200678_x_at']
+    elif genes is 'test2':
+        genes = ['121_at', '219888_at', '218245_at', '206501_x_at', '203154_s_at',
+                 '201614_s_at', '209682_at', '202324_s_at', '209603_at',
+                 '200060_s_at', '202123_s_at', '201579_at']
+    elif genes is 'test100':
+        genes = df.index.values[50:150]
+    elif genes is 'all':
+        genes = df.index.values
+    return genes
+
+
+def consensus(ds):
+    new = pd.DataFrame(index=ds.index)
+    choices = [ds.min(axis=1), ds.max(axis=1)]
+    conds = [(ds > 0).all(axis=1), (ds < 0).all(axis=1)]
+    new['consensus']= np.select(conds, choices, default=0)
+    return new
+
+
+def create_desc_label(h, order='dflt',):
+    if order is 'dflt':
+        try:
+            i = h['dose']
+            h['desc'] = h['batch'] + '-' + h['name'] + '-' + h['dose']
+            # order = ['batch', 'name', 'dose']
+        except KeyError:
+            h['desc'] = h['batch'] + '-' + h['name']
+            # order = ['batch', 'name']
+    else:
+        h['desc'] = h[order].apply(lambda x: '-'.join(x), axis=1)
+    return h['desc']
+
+
+def copyout(path, term, outpath='dflt', rc=True):
+    """ local copy files function, specify destination path, searchterm with wilcards, oupath and recursive
+    aruments assumed """
+    fl = globit(path, term, rc=rc)
+    if outpath is 'dflt':
+        outpath = dflt_outpath()
+    for f in fl:
+        shutil.copy(f, outpath)
+
+
+def globit(path, term, rc=True):
+    """ a wrapped recursive glob function """
+    fl = glob.glob(path + '/**/*' + term, recursive=True)
+    return fl
 
 
 def stack_files(path, orient='vert'):
@@ -82,21 +135,87 @@ def isnum(s):
         return False
 
 
-def hsub(h, arg_dict):
+def dosub(d, h, arg_dict):
+    """ same as dsub, except only returns the subset dataframe without the accompanying subset header """
+    hs = hsub(h, arg_dict)
+    ds = d[hs.index.values].copy()
+    try:
+        ds.name = d.name + '_sub'
+    except AttributeError:
+        pass
+    return ds
+
+
+def dsub(d,h, arg_dict):
+    """ pass the dataframe and header to return the subset header as well as corresponding df slice. retrns ds, hs """
+    hs = hsub(h, arg_dict)
+    #print(hs.index[:5])
+    ds = d[hs.index.values].copy()
+    try:
+        ds.name = d.name + '_sub'
+    except AttributeError:
+        pass
+    return ds, hs
+
+
+def hsub(h, arg_dict, sep=False):
     """ takes in dictionary of {param: value} to scrape folder and return data meeting criteria,
     dictionary value may be a list, in which case any value of list is acceptable.
-    returns the filtered header file"""
+    returns the filtered header file. if d=dataframe is specified returns ds, hs as pre-filtered data too
+    if sep is true, then a passed list will result in a list of the results rather than
+    a combined result of all of them, so a list of lists"""
     sh = h
     for c, v in arg_dict.items():
         if isinstance(v, str):
-            sh = sh[sh[str(c)] == str(v)]
-        elif isinstance(v, list):
-            sh = sh[sh[str(c)].isin([str(x) for x in v])]
+            sh = sh[sh[str(c)] == str(v)].copy()
         else:
-            print('error with filter dictionary value')
+            try:
+                if sep is True:
+                    sh = [sh[sh[str(c)] == str(x)] for x in v].copy()
+                elif sep is False:
+                    sh = sh[sh[str(c)].isin([str(x) for x in v])].copy()
+            except:
+                print('error with filter dictionary value')
     if len(sh.index.values) == 0:
         print('no wells in selection', arg_dict)
     return sh
+
+
+def breakdown(df,h,cats):
+    """ takes a dataframe and header and the categories to break down by 'b' batch, 'n' name and 'd' dose.
+    will return a list of dataframe/header pairs for each respective unique combo of the given batches.
+    useful to subset a df and then plot the remaining df along one of these categories """
+    cd = {}
+
+    if 'd' in cats:
+        try:
+            dose_col = [x for x in h.columns if 'dose' in x][0]
+        except:
+            print('dose column error')
+
+    subs = []
+
+
+    if ''.join(sorted(cats)) is 'bdn':
+        for b in h.batch.dropna().unique():
+            for n in h.name.dropna().unique():
+                for d in h.dose_col.dropna().unique():
+                    subs.append(dsub(df,h,{'batch':b, 'name':n, dose_col:d}))
+    elif ''.join(sorted(cats)) is 'bn':
+        for b in h.batch.dropna().unique():
+            for n in h.name.dropna().unique():
+                subs.append(dsub(df,h,{'batch':b, 'name':n}))
+    elif cats is 'b':
+        for b in h.batch.dropna().unique():
+            subs.append(dsub(df,h,{'batch':b}))
+    elif cats is 'n':
+        for n in h.name.dropna().unique():
+            subs.append(dsub(df,h,{'name':n}))
+    elif cats is 'd':
+        for d in h.dose_col.dropna().unique():
+            subs.append(dsub(df,h,{dose_col:d}))
+
+    return subs
 
 
 def txt2list(file):
@@ -267,9 +386,36 @@ def count_mode_failures(path):
     fp.to_csv(op, sep='\t')
 
 
+def separate_subset_folders(path, mylist, down=False, dest='dflt'):
+    """ copy top level folders over from path to destination if the folders match any terms in
+        mylist, all folders transferred over as-is. if not found, printed """
+
+    if dest is 'dflt':
+        dest = gt.dflt_outpath()
+
+    for st in mylist:
+        if down is False:
+            fl = glob.glob(path + st + '*')
+        elif down is True:
+            fl = glob.glob(path + '*/' + st)
+
+        cplist = [x for x in fl if os.path.isdir(x)]
+
+        try:
+            dirpath = cplist[0]
+            bn = os.path.basename(dirpath)
+            try:
+                shutil.copytree(dirpath, os.path.join(dest, bn))
+            except FileExistsError:
+                pass
+        except IndexError:
+            print(st, ' not found')
+
+
 def separate_subset(path, dest, mylist, st1=None, st2=None, d=False):
     """ copy files from path folder to dest folder, matching items in list
-            st1 and st2 are search terms (in order), d option deletes files"""
+            st1 and st2 are search terms (in order), d option deletes files
+            only works to copy over flat files, will not preserve directory struct"""
     new, cplist = [], []
     if st1 is not None:
         new.append(st1)
@@ -288,19 +434,18 @@ def separate_subset(path, dest, mylist, st1=None, st2=None, d=False):
     for f in fl:
         if any([x in f for x in mylist]):
             cplist.append(f)
+    for f in cplist:
+        fn = os.path.split(f)[1]
+        print(f)
+        fdest = os.path.join(dest, fn)
+        shutil.copy(f, fdest)
 
     if d is True:
         for f in cplist:
             os.remove(f)
-    else:
-        for f in cplist:
-            fn = os.path.split(f)[1]
-            print(f)
-            fdest = os.path.join(dest, fn)
-            shutil.copy(f, fdest)
 
 
-def get_awells():
+def get_awells(pos=True, ref=True, proc=True, empt=True):
     """ returns list of 384 three character well IDs """
     awells = []
     rows = string.ascii_uppercase[0:16]
@@ -309,7 +454,26 @@ def get_awells():
         for n in cols:
             # join lettrs and nums with 2 characater num format
             awells.append(l + str('{:02d}'.format(n)))
+    if proc is False:
+        pos, ref, empt = False, False, False
+    if pos is False:
+        awells.remove('B01')
+    if ref is False:
+        awells.remove('B02')
+        awells.remove('A02')
+    if empt is False:
+        awells.remove('A01')
     return awells
+
+
+def wells_range(well_list):
+    """ returns list of 3char ids of all well range tuples in the list, can string multiple together
+    well_list = [('A23','E23'),('B01','F06')]"""
+    wells = []
+    for w in well_list:
+        wells.extend(well_range(w[0], w[1]))
+    print('length: ', len(wells))
+    return wells
 
 
 def well_range(upper_left, lower_right):

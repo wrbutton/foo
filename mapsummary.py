@@ -60,7 +60,14 @@ def plate_map_vis(myseries, path='dflt'):
     plottools.plot_plateplot(data, outpath=outpath, label=data.name, cmap='tab10', clrbar=xltr)
 
 
-def check_maps(path):
+def summarize_doses(h):
+    # returns series of names and lists of their unique doses as values
+    res = gt.hsub(h, {'type':'test'})['dilution'].groupby(h['name']).unique()
+    return res
+
+def check_maps(path, compare=True, img=True, v=True):
+    """ looks through .txt and .xlsx maps in a directory and summarizes their content and relationship with each other,
+    as well as generating plate visualizations of type and batch for each plate. V for verbose, lists names and doses per plate """
 
     plot_fields = ['type', 'batch']
     # add checks to add batch and dose if present
@@ -73,17 +80,22 @@ def check_maps(path):
     if len(flist) == 0:
         flist = gt.get_flist(path, ext='.txt')
         flist = [x for x in flist if len(os.path.split(x)[-1])==10]
-    print('flist = ', flist)
 
-    dose_field = 'dose (M)'
+    if v is True:
+        print('flist = ', flist)
+
+    m = pd.read_excel(flist[0])
+    dose_field = [x for x in m.columns if (('dose' in x) or ('dilution' in x))][0]
 
     awells = gt.get_awells()
 
     headers = {'wells #': lambda x: len(x.index),
                'test #': lambda x: ctup(x, {'type':'test'}, 'well'),
+               'doses': lambda x: ctup(x, {'type':'test'}, dose_field),
+               'dose/trt': lambda x: gt.hsub(m, {'type': 'test'})[dose_field].groupby(m['name']).unique().apply(lambda x: len(x)).mean(),
+               '# names': lambda x: ctup(x, {'type': 'test'}, 'name'),
                'vehicle #': lambda x: ctup(x, {'type':'vehicle'}, 'well'),
                'poscon #': lambda x: ctup(x, {'type':'poscon'}, 'well'),
-               'dose #': lambda x: ctup(x,{'type':'test'},dose_field,u=False)/ctup(x, {'type':'test'}, 'name', u=False),
                'poscons': lambda x: ctup(x, {'type':'poscon'}, 'name', lst=True)}
 
     summary = pd.DataFrame(columns=headers)
@@ -101,12 +113,15 @@ def check_maps(path):
         well_result = set(awells) - set(m['well'].values)
         if len(well_result) != 0:
             print('{} wells error, {} entries - {}'.format(pname, len(m.index), well_result))
-        # check vehicle named 'DMSO'
-        veh_names = m.loc[m['type']=='vehicle','name'].unique()
-        #if len(veh_names) > 1 or not np.isnan(veh_names[0]):
-        #    print('vehicles named: ', veh_names)
-        #if veh_names != 'DMSO':
-        #    print('{} vehicle error, names: {}'.format(pname, veh_names))
+
+        if v is True:
+            print(gt.hsub(m, {'type':'test'})['name'].dropna().unique())
+            try:
+                doselist = gt.hsub(m, {'type':'test'})[dose_field].dropna().unique()
+                print(doselist)
+            except:
+                print('error with dose col, ', dose_field)
+                pass
 
         # summarize the header info per batch, and assemble pert-lists
         # for the overlap comparisons
@@ -122,38 +137,29 @@ def check_maps(path):
                 try:
                     summary.loc[entry, k] = headers[k](ms)
                 except KeyError:
-                    if k is 'dose #':
-                        dose_field = 'dose [M]'
-                        try:
-                            summary.loc[entry, k] = headers[k](ms)
-                        except KeyError:
-                            dose_field = 'dose'
-                            try:
-                                summary.loc[entry, k] = headers[k](ms)
-                            except KeyError:
-                                summary.loc[entry, k] = 'na'
-                    else:
-                        summary.loc[entry, k] = 'na'
+                    summary.loc[entry, k] = 'na'
 
-        for pf in plot_fields:
-            plot_series = m[pf]
-            if len(plot_series.dropna().unique()) > 1:
-                plot_series.name = pname + ' ' + pf
-                plate_map_vis(plot_series, path=path)
+        if img is True:
+            for pf in plot_fields:
+                plot_series = m[pf]
+                if len(plot_series.dropna().unique()) > 1:
+                    plot_series.name = pname + ' ' + pf
+                    plate_map_vis(plot_series, path=path)
 
-    
+
     summary.to_excel(os.path.join(path, 'batch_composition.xlsx'))
-    same_plates = gt.overlap_matrix(wellpert_dict.values(), wellpert_dict.keys())
-    pert_overlap = gt.overlap_matrix(pert_dict.values(), pert_dict.keys())
-    pert_overlap.to_excel(os.path.join(path, 'pert_overlaps.xlsx'))
-    same_plates.to_excel(os.path.join(path, 'well-name_overlaps.xlsx'))
+
+    if compare is True:
+        same_plates = gt.overlap_matrix(wellpert_dict.values(), wellpert_dict.keys())
+        name_overlap = gt.overlap_matrix(pert_dict.values(), pert_dict.keys())
+        name_overlap.to_excel(os.path.join(path, 'name_overlaps.xlsx'))
+        same_plates.to_excel(os.path.join(path, 'well-name_overlaps.xlsx'))
 
 
 
 def main():
-    path = '/Users/wrb/Desktop/AVA308_ZSVCQNORM_n358x978.gct'
-    h = gct.extractheader(path)
-    plate_map_vis(h['type'])
+    path = '/Users/WRB/Desktop/map/'
+    check_maps(path)
 
 
 if __name__ == '__main__':
