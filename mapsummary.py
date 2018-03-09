@@ -84,21 +84,8 @@ def check_maps(path, compare=True, img=True, v=True):
     if v is True:
         print('flist = ', flist)
 
-    m = pd.read_excel(flist[0])
-    dose_field = [x for x in m.columns if (('dose' in x) or ('dilution' in x))][0]
-
     awells = gt.get_awells()
-
-    headers = {'wells #': lambda x: len(x.index),
-               'test #': lambda x: ctup(x, {'type':'test'}, 'well'),
-               'doses': lambda x: ctup(x, {'type':'test'}, dose_field),
-               'dose/trt': lambda x: gt.hsub(m, {'type': 'test'})[dose_field].groupby(m['name']).unique().apply(lambda x: len(x)).mean(),
-               '# names': lambda x: ctup(x, {'type': 'test'}, 'name'),
-               'vehicle #': lambda x: ctup(x, {'type':'vehicle'}, 'well'),
-               'poscon #': lambda x: ctup(x, {'type':'poscon'}, 'well'),
-               'poscons': lambda x: ctup(x, {'type':'poscon'}, 'name', lst=True)}
-
-    summary = pd.DataFrame(columns=headers)
+    composition = pd.DataFrame(columns=['wells #', 'test #', 'doses', 'dose/trt', '# names','vehicle #','poscon #','poscons'])
 
     for f in flist:
         pname = gt.get_shn(f).split('.')[0]
@@ -109,6 +96,29 @@ def check_maps(path, compare=True, img=True, v=True):
             m = pd.read_table(f, index_col=False)
         m.sort_index(inplace=True)
         batches = m['batch'].dropna().unique()
+
+        if any([('dose' in x) or ('dilution' in x) for x in m.columns]):
+            dose_field = [x for x in m.columns if (('dose' in x) or ('dilution' in x))][0]
+        else:
+            dose_field = None
+
+        headers = {'wells #': lambda x: len(x.index),
+                   'test #': lambda x: ctup(x, {'type': 'test'}, 'well')}
+        if dose_field is not None:
+            headers.update({
+                'doses': lambda x: ctup(x, {'type': 'test'}, dose_field),
+                'dose/trt': lambda x: gt.hsub(m, {'type': 'test'})[dose_field].groupby(m['name']).unique().apply(
+                    lambda x: len(x)).mean()})
+        elif dose_field is None:
+            headers.update({'doses': 'na', 'dose/trt': 'na'})
+        headers.update({
+            '# names': lambda x: ctup(x, {'type': 'test'}, 'name'),
+            'vehicle #': lambda x: ctup(x, {'type': 'vehicle'}, 'well'),
+            'poscon #': lambda x: ctup(x, {'type': 'poscon'}, 'well'),
+            'poscons': lambda x: ctup(x, {'type': 'poscon'}, 'name', lst=True)})
+
+        summary = pd.DataFrame(columns=headers)
+
         # check wells for full plate
         well_result = set(awells) - set(m['well'].values)
         if len(well_result) != 0:
@@ -136,8 +146,10 @@ def check_maps(path, compare=True, img=True, v=True):
             for k in headers.keys():
                 try:
                     summary.loc[entry, k] = headers[k](ms)
-                except KeyError:
+                except (KeyError, TypeError):
                     summary.loc[entry, k] = 'na'
+
+        composition = pd.concat([composition, summary])
 
         if img is True:
             for pf in plot_fields:
@@ -146,8 +158,7 @@ def check_maps(path, compare=True, img=True, v=True):
                     plot_series.name = pname + ' ' + pf
                     plate_map_vis(plot_series, path=path)
 
-
-    summary.to_excel(os.path.join(path, 'batch_composition.xlsx'))
+    composition.to_excel(os.path.join(path, 'batch_composition.xlsx'))
 
     if compare is True:
         same_plates = gt.overlap_matrix(wellpert_dict.values(), wellpert_dict.keys())
