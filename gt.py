@@ -5,10 +5,13 @@ import os, csv, glob, string, shutil, gt
 import pandas as pd
 import numpy as np
 import collections as cll
+import matplotlib.pyplot as plt
+import seaborn as sns
 try:
     import pyperclip
 except:
     pass
+
 
 def get_genes(genes, df=None):
     # check for gene arguments, and fill 'test' and 'all'
@@ -25,12 +28,19 @@ def get_genes(genes, df=None):
     return genes
 
 
-def consensus(ds):
-    new = pd.DataFrame(index=ds.index)
+def consensus(ds, name='dflt'):
+    """ merges ZScore instances in a passed dataframe into a conservitive consensus - min abs value
+    as long as all reps agree on direction, otherwise zero. uses a fancy np.select method to set values
+    if name is 'dflt' the column name will be: FPA001:K03-N04_(3)
+    otherwise if name is 'first' name will just be first well FPA001:K03 (better for header integration) """
     choices = [ds.min(axis=1), ds.max(axis=1)]
     conds = [(ds > 0).all(axis=1), (ds < 0).all(axis=1)]
-    new['consensus']= np.select(conds, choices, default=0)
-    return new
+    newdf = pd.Series(data=np.select(conds, choices, default=0), index=ds.index)
+    if name is 'dflt':
+        newdf.name = ds.columns[0] + '-' + ds.columns[-1].split(':')[-1] + '_(' + str(len(ds.columns)) + ')'
+    elif name is 'first':
+        newdf.name = ds.columns[0]
+    return newdf
 
 
 def create_desc_label(h, order='dflt',):
@@ -135,26 +145,31 @@ def isnum(s):
         return False
 
 
-def dosub(d, h, arg_dict):
+def dosub(d, h, arg_dict, name='dflt'):
     """ same as dsub, except only returns the subset dataframe without the accompanying subset header """
     hs = hsub(h, arg_dict)
     ds = d[hs.index.values].copy()
-    try:
-        ds.name = d.name + '_sub'
-    except AttributeError:
-        pass
+    if name == 'dflt':
+        try:
+            ds.name = d.name + '_sub'
+        except AttributeError:
+            pass
+    else:
+        ds.name = name
     return ds
 
 
-def dsub(d,h, arg_dict):
+def dsub(d,h, arg_dict, name='dflt'):
     """ pass the dataframe and header to return the subset header as well as corresponding df slice. retrns ds, hs """
     hs = hsub(h, arg_dict)
-    #print(hs.index[:5])
     ds = d[hs.index.values].copy()
-    try:
-        ds.name = d.name + '_sub'
-    except AttributeError:
-        pass
+    if name == 'dflt':
+        try:
+            ds.name = d.name + '_sub'
+        except AttributeError:
+            pass
+    else:
+        ds.name = name
     return ds, hs
 
 
@@ -181,41 +196,128 @@ def hsub(h, arg_dict, sep=False):
     return sh
 
 
-def breakdown(df,h,cats):
-    """ takes a dataframe and header and the categories to break down by 'b' batch, 'n' name and 'd' dose.
-    will return a list of dataframe/header pairs for each respective unique combo of the given batches.
-    useful to subset a df and then plot the remaining df along one of these categories """
-    cd = {}
+def breakdown(df,h,cats, dic=True, genes=None):
+    """ takes a dataframe and header and the categories to break down by 'b' batch, 'c' cell, 'n' name, 'd' dose.
+    returns a dictionary with the key as the description and the dataframe as the value.
+    'w' is also supported as breakdown by well - useful for many plates with identical layout
+
+    if dic is True a dictionary is returned, with a key title and dataframe value
+    if dic is False then list is returned, of tuples with dataframe and header
+
+    """
+
+    if genes is not None:
+        genes = get_genes(genes)
+        df = df.loc[genes]
 
     if 'd' in cats:
         try:
-            dose_col = [x for x in h.columns if 'dose' in x][0]
-        except:
+            dose_col = [x for x in h.columns if 'dose' in x or 'dilution' in x][0]
+        except IndexError:
             print('dose column error')
+    else:
+        dose_col = None
 
+    vd = cll.OrderedDict()
     subs = []
 
+    cd = {'c': 'cell',
+          'b': 'batch',
+          'd': dose_col,
+          'n': 'name',
+          'w': 'well'}
 
-    if ''.join(sorted(cats)) is 'bdn':
-        for b in h.batch.dropna().unique():
-            for n in h.name.dropna().unique():
-                for d in h.dose_col.dropna().unique():
-                    subs.append(dsub(df,h,{'batch':b, 'name':n, dose_col:d}))
-    elif ''.join(sorted(cats)) is 'bn':
-        for b in h.batch.dropna().unique():
-            for n in h.name.dropna().unique():
-                subs.append(dsub(df,h,{'batch':b, 'name':n}))
-    elif cats is 'b':
-        for b in h.batch.dropna().unique():
-            subs.append(dsub(df,h,{'batch':b}))
-    elif cats is 'n':
-        for n in h.name.dropna().unique():
-            subs.append(dsub(df,h,{'name':n}))
-    elif cats is 'd':
-        for d in h.dose_col.dropna().unique():
-            subs.append(dsub(df,h,{dose_col:d}))
+    clist = []
 
-    return subs
+    for c in cats:
+        try:
+            clist.append(cd[c])
+        except IndexError:
+            print('error, more than 3 categories')
+
+    cat1 = clist[0]
+    group1 = sorted(h[cat1].dropna().unique())
+    for e1 in group1:
+        argdict = {cat1: e1}
+        try:
+            cat2 = clist[1]
+            for e2 in sorted(h[cat2].dropna().unique()):
+                argdict.update({cat2: e2})
+                try:
+                    cat3 = clist[2]
+                    for e3 in sorted(h[cat3].dropna().unique()):
+                        argdict.update({cat3: e3})
+                        hdr = f'{e1}-{e2}-{e3}'
+                        if dic is True:
+                            vd.update({hdr: gt.dosub(df,h, argdict, name=hdr)})
+                        else:
+                            subs.append(gt.dsub(df,h, argdict, name=hdr))
+                except IndexError:
+                    hdr = f'{e1}-{e2}'
+                    if dic is True:
+                        vd.update({hdr: gt.dosub(df, h, argdict, name=hdr)})
+                    else:
+                        subs.append(gt.dsub(df, h, argdict, name=hdr))
+        except IndexError:
+            hdr = f'{e1}'
+            if dic is True:
+                vd.update({hdr: gt.dosub(df, h, argdict, name=hdr)})
+            else:
+                subs.append(gt.dsub(df, h, argdict, name=hdr))
+
+    if dic is True:
+        return vd
+    else:
+        return subs
+
+
+def assemble_consensus(df, h, cats, ccs=True, plot=False, n=None):
+    """ tool to assemble replicate zscore consensus, pass df, header and the breakdown categories 'nd' for instance
+    will return the consolidated df and header file
+
+    the optional n argument is a limiter to only consider treatments with enough replicates"""
+
+    subs = breakdown(df, h, cats, dic=False)
+
+    con_data = pd.DataFrame(index=df.index)
+    if ccs is True:
+        con_header = pd.DataFrame(index=np.concatenate([h.columns.values,['corr', 'all ccs']]))
+    else:
+        con_header = pd.DataFrame(index=h.columns)
+
+    for ds, hs in subs:
+        if n is not None:
+            if len(ds.columns) < n:
+                print('not enough reps', hs.iloc[0])
+                continue
+
+        c = consensus(ds, name='first')
+        con_data = pd.concat([con_data, c], axis=1)
+
+        new_annot = hs.iloc[0,:].copy().T
+        new_annot.well = hs['well'].values
+        new_annot.addr = hs['addr'].values
+
+        if ccs is True:
+            corrs = []
+            for i in range(len(ds.columns)):
+                for j in range(1 + i, len(ds.columns)):
+                    corrs.append(round(ds.iloc[:, i].corr(ds.iloc[:, j], method='pearson'), 2))
+            new_annot['corr'] = round(np.percentile(corrs, 75), 2)
+            new_annot['all ccs'] = corrs
+
+        if plot is True:
+            ds.columns = [x + ' - ' + hs.loc[x]['batch'] for x in ds.columns]
+            ax = sns.pairplot(ds)
+            outpath = gt.dflt_outpath(fldr_name='output figs')
+            plt.savefig(os.path.join(outpath, ds.name + '.png'))
+            plt.close()
+
+        con_header = pd.concat([con_header, new_annot], axis=1)
+
+    con_header = con_header.T
+
+    return con_data, con_header
 
 
 def txt2list(file):
@@ -268,7 +370,7 @@ def get_flist(path, ext='all', shn=False):
 def check_desktop():
     """ grab the current desktop working directory for whichever machine in use,
             need to add additional options to the list if desired """
-    dtops = ['/Volumes/WRBHDD/wrb/Desktop/', '/Users/wrb/Desktop/']
+    dtops = ['/Volumes/WRBHDD/wrb/Desktop/', '/Users/wrb/Desktop/', '/home/wrb/Desktop']
     for d in dtops:
         if os.path.exists(d):
             return d

@@ -24,6 +24,11 @@ import numpy as np
 import collections as cll
 import os, csv, sys, pickle, pt, gt
 
+
+def open_gctx(path):
+    pass
+
+
 def gather_wells(path, wellfile):
     # reads from a text file ('MKD031:A03' one or many per line) to assemble a dataframe
     # from a collection of wells from a range of plates. dir points to gct directory
@@ -193,16 +198,37 @@ def save_dfgct(gct, df, outpath):
 
 def get_hd():
     hd = {'batch':'batch',     'det_well':'well',             'det_plate':'plate',
-                'dose':'dose',         'concentration':'dose',    'pert_type':'type',
-                'cell_id':'cell',    'pert_desc':'name',            'dilution':'dose', 'addr':'addr',
+          'dose':'dose',         'concentration':'dose',    'pert_type':'type',
+          'cell_id':'cell',    'pert_desc':'name',            'dilution':'dose', 'addr':'addr',
           'dose [M]':'dose'}
     return hd
 
 
 def extractgct(path):
+    """ bread and butter shortcut, pass path receive dataframe and header objs"""
     g = Gct(path)
     d, h = g.build_dframe()
     d.name = g.shortname
+    return d, h
+
+def extract_multiple_gcts(pathlist, split=True):
+    """ automatically extract and concat dataframe and header files
+    CARE MUST BE TAKEN THE FILES ARE OF THE SAME HEADER/MAP TYPE!
+    the break argument will parse a single string of run-on gct paths and
+    separate into a list of separate paths"""
+    if split is True:
+        # special kludge for ease of use on main mac from path shortcut
+        pathlist = pathlist.replace('.gct','.gctå').replace('Macintosh HD', '')[:-1]
+        pathlist = pathlist.split('å')
+    dlist, hlist = [], []
+    for path in pathlist:
+        print(path)
+        d, h = extractgct(path)
+        dlist.append(d)
+        hlist. append(h)
+    d = pd.concat(dlist, axis=1)
+    h = pd.concat(hlist, axis=0)
+    print('samples (d/h): ', len(d.columns), len(h.index))
     return d, h
 
 
@@ -401,8 +427,8 @@ class Gct(object):
 
 
 def main():
-    path = '/Users/WRB/Desktop/PGA302-PGA303-PGA304_consensus.gct'
-    d, h = dfsubset(path, ['200024_at'])
+    path = '/Users/WRB/Desktop/myzscore/SYA007_ZSVCQNORM_n170x978.gctMacintosh HD/Users/WRB/Desktop/myzscore/SYA008_ZSVCQNORM_n163x978.gctMacintosh HD/Users/WRB/Desktop/myzscore/SYA009_ZSVCQNORM_n169x978.gct'
+    d, h = extract_multiple_gcts(path)
     d.head()
 
 if __name__ == '__main__':

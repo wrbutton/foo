@@ -13,7 +13,7 @@
 import pandas as pd
 import numpy as np
 import collections as cll
-import os, csv, gct, sys, pt, math
+import os, csv, gct, sys, pt, gt
 import pickle
 
 
@@ -47,7 +47,7 @@ def get_combined(path, ctype):
 def load_cpanel(path, pan=False):
     # given folder path gets gct info and builds dframes for files
     # either merges into panel, or returns 2 dicts of gcts and dframes
-    f_list = gct.get_flist(path, '.csv')
+    f_list = pt.get_flist(path, '.csv')
     gd, dfd = {}, {}
     for i, file in enumerate(f_list):
         gn, dfn = 'c' + str(i), 'df' + str(i)
@@ -61,15 +61,20 @@ def load_cpanel(path, pan=False):
 
 
 def summarize_csvs(path):
+    if path is None:
+        path = gt.dflt_outpath(fldr_name='csv')
     results = cll.defaultdict(dict)
-    f_list = gct.get_flist(path, '.csv')
+    f_list = pt.get_flist(path, '.csv')
     for file in f_list:
-        c = Gcsv(file)
-        d = c.build_dframe()
-        results[c.shortname]['plate-L10'] = d['Analyte 10'].mean(axis=0)
-        results[c.shortname]['Pos-L10'] = d.ix['B1']['Analyte 10']
-        results[c.shortname]['Ref-L10'] = d.ix[['A2','B2']]['Analyte 10'].mean()
-        results[c.shortname]['plate-L1'] = d['Analyte 1'].mean(axis=0)
+        try:
+            c = Gcsv(file)
+            d = c.build_dframe()
+            results[c.shortname]['plate-L10'] = d['Analyte 10'].mean(axis=0)
+            results[c.shortname]['Pos-L10'] = d.ix['B1']['Analyte 10']
+            results[c.shortname]['Ref-L10'] = d.ix[['A2','B2']]['Analyte 10'].mean()
+            results[c.shortname]['plate-L1'] = d['Analyte 1'].mean(axis=0)
+        except:
+            print('error with ' + file)
     res = pd.DataFrame(results)
     res = res.T
     outpath = os.path.join(path, 'csv_summary.txt')
@@ -86,8 +91,8 @@ def save_csv(csvf, df, outpath):
         pd.options.display.float_format = '{i}'.format
         f = 0
         for line in linereader:
-        # read through file until correct data section, writing uninteristing lines
-        # to the corresponding edited file as-is
+            # read through file until correct data section, writing uninteristing lines
+            # to the corresponding edited file as-is
             if 'Data Type:' and 'Median' in line:
                 csvwriter.writerow(line)
                 # flag to read one more line and then change modes
@@ -102,7 +107,7 @@ def save_csv(csvf, df, outpath):
             line = next(linereader)
             #dlist = ['{:.2f}'.format(x) if isnum(x) else 'NaN' for x in df.ix[i]]
             try:
-                dlist = [x if isnum(x) else 'NaN' for x in df.ix[i]]
+                dlist = [x if gt.isnum(x) else 'NaN' for x in df.ix[i]]
                 line[2:502] = dlist
                 csvwriter.writerow(line)
             except IndexError:
@@ -183,7 +188,7 @@ def split_out_csv(csvf, d, outpath):
                             # store 11 and 499 counts as is
                             c11, c499 = line[12], line[500]
                             # multiply counts to incorporate rptwls
-                            line[2:502] = [int(x) * 1.5 for x in line[2:502]]
+                            line[2:502] = [int(float(x)) * 1.5 for x in line[2:502]]
                             # fill back in original counts
                             line[12], line[500] = c11, c499
                         csvwriter.writerow(line)
@@ -196,14 +201,19 @@ def split_out_csv(csvf, d, outpath):
                 continue
 
 
-def adj_csv(csvf, outpath='dflt', mywells='all', pmap=None, adj_vect=None, separate=False, fixcounts=False, scalefactor=1):
+def adj_csv(csvf, outpath='dflt', mywells='all', pmap=None, adj_vect=None, separate=False, fixcounts=False, scalefact=1):
     """ adjusts a csv file (whole or from list of wells) adjusting well values either by applying an adj_vector
     to each well, or by a scalefactor to each well. if a platemap is provided, then batch adjustment vectors will
     be applied. if separate is True only the wells in mywells list are written to file, otherwise only those are
     edited but all wells are copied over to new file. fixcounts ajdusts counts by 1.5, but if the file has been
     split out from a consolidated csv into sub RPTWLS files the count adjustment has been applied then """
     if outpath is 'dflt':
-        outpath = csvf.strip('.csv') + '_adjusted.csv'
+        # outpath = csvf.strip('.csv') + '_adjusted.csv'
+        if 'DP52' in csvf:
+            outpath = csvf.replace('DP52_', 'DP52_a')
+        elif 'DP53' in csvf:
+            outpath = csvf.replace('DP53_', 'DP53_a')
+
     if mywells is 'all':
         mywells = get_2char_ids(pt.get_awells())
     else:
@@ -248,7 +258,7 @@ def adj_csv(csvf, outpath='dflt', mywells='all', pmap=None, adj_vect=None, separ
                         # want to only pull wells of interest to edit
                         well = line[0].split(',')[1].rstrip(')')
                         if well in mywells:
-                            vals = [round(float(x) * scalefactor) if x != 'NaN' else 0 for x in line[2:502]]
+                            vals = [round(float(x) * scalefact) if x != 'NaN' else 0 for x in line[2:502]]
                             # if a plate map is provided, applies the per-batch adj-vector (which should be dict)
                             # otherwise applies a global adj_vector as a list to each well
                             if pmap is not None:
@@ -274,6 +284,7 @@ def adj_csv(csvf, outpath='dflt', mywells='all', pmap=None, adj_vect=None, separ
                                 c11, c499 = line[12], line[500]
                                 line[2:502] = [float(x) * 1.5 for x in line[2:502]]
                                 line[12], line[500] = c11, c499
+                                csvwriter.writerow(line)
                             elif fixcounts is False:
                                 csvwriter.writerow(line)
                         elif well not in mywells:
@@ -288,9 +299,10 @@ def adj_csv(csvf, outpath='dflt', mywells='all', pmap=None, adj_vect=None, separ
                 csvwriter.writerow(line)
 
 
-
 def get_2char_ids(wells):
     """ go from 3 char ids to the dumb luminex format """
+    if isinstance(wells, str):
+        wells = [wells]
     new_wells = []
     for w in wells:
         if len(w) == 3:
@@ -345,14 +357,6 @@ def open_as_gct(file, log=False):
     if log is True:
         df = df.applymap(lambda x: '{:.3f}'.format(math.log(x, 2)))
     return df
-
-
-def isnum(s):
-    try:
-        int(s)
-        return True
-    except ValueError:
-        return False
 
 
 class Gcsv(object):
@@ -418,11 +422,8 @@ class Gcsv(object):
         df = self.build_dframe()
         new_index = get_3char_ids(df.index)
         df.index = new_index
-        paths = ['C:/Users/matlab/Desktop/Python Scripts/analytes_to_probes_dict.p', '/Users/WRB/Dropbox/bin/python/analytes_to_probes_dict.p']
-        for d in paths:
-            if os.path.exists(d):
-                ref_file = d
-        #ref_file = '/Users/WRB/Dropbox/bin/python/analytes_to_probes_dict.p'
+        # ref_file = '/Users/WRB/Dropbox/bin/python/analytes_to_probes_dict.p'
+        ref_file = '/Users/WRB/Dropbox/bin/python/analytes_to_probes_dict.p'
         analyte_dict = pickle.load(open(ref_file, 'rb'))
         if 'DP52' in self.file:
             beadset_dict = analyte_dict['dp52']
@@ -442,4 +443,5 @@ class Gcsv(object):
         df.index = wells
         df = df.T
         return df
+
 
