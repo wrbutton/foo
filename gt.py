@@ -241,11 +241,11 @@ def breakdown(df,h,cats, dic=True, genes=None):
         argdict = {cat1: e1}
         try:
             cat2 = clist[1]
-            for e2 in sorted(h[cat2].dropna().unique()):
+            for e2 in sorted(gt.hsub(h, {cat1: e1})[cat2].dropna().unique()):
                 argdict.update({cat2: e2})
                 try:
                     cat3 = clist[2]
-                    for e3 in sorted(h[cat3].dropna().unique()):
+                    for e3 in sorted(gt.hsub(h, {cat1: e1, cat2: e2})[cat3].dropna().unique()):
                         argdict.update({cat3: e3})
                         hdr = f'{e1}-{e2}-{e3}'
                         if dic is True:
