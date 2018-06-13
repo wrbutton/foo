@@ -138,7 +138,7 @@ def save_simplegct(df, outpath):
     df.to_csv(outpath, mode='a', sep='\t', float_format='%.3f')
 
 
-def save_headergct(df, outpath, h):
+def save_headergct(df, h, outpath):
     with open(outpath, 'w') as f:
         wr = csv.writer(f, delimiter='\t')
         wr.writerow(['#1.3'])
@@ -157,7 +157,7 @@ def save_headergct(df, outpath, h):
         df.to_csv(f, sep='\t', header=False, float_format='%.3f')
 
 
-def save_multiplateheadergct(df, outpath, h):
+def save_multiplateheadergct(df, h, outpath):
     # in process
     with open(outpath, 'w') as f:
         wr = csv.writer(f, delimiter='\t')
@@ -211,15 +211,15 @@ def extractgct(path):
     d.name = g.shortname
     return d, h
 
+
 def extract_multiple_gcts(pathlist, split=True):
     """ automatically extract and concat dataframe and header files
     CARE MUST BE TAKEN THE FILES ARE OF THE SAME HEADER/MAP TYPE!
     the break argument will parse a single string of run-on gct paths and
     separate into a list of separate paths"""
     if split is True:
+        pathlist = gt.splitpaths(pathlist, ext='.gct')
         # special kludge for ease of use on main mac from path shortcut
-        pathlist = pathlist.replace('.gct','.gctå').replace('Macintosh HD', '')[:-1]
-        pathlist = pathlist.split('å')
     dlist, hlist = [], []
     for path in pathlist:
         print(path)

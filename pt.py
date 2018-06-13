@@ -1,19 +1,39 @@
 #!/usr/bin/python
 
-import gct, os, csv, glob, pickle
-import shutil
+import gct, os, csv, glob, pickle, string
+import pyperclip, shutil
 import pandas as pd
 import collections as cll
 
 
+def hsub(h, arg_dict):
+    """ takes in dictionary of {param: value} to scrape folder and return data meeting criteria,
+    dictionary value may be a list, in which case any value of list is acceptable.
+    returns the filtered header file"""
+    sh = h
+    for c, v in arg_dict.items():
+        if isinstance(v, str):
+            sh = sh[sh[c]==v]
+        elif isinstance(v, list):
+            sh = sh[sh[c].isin(v)]
+        else:
+            print('error with filter dictionary value')
+    if len(sh.index.values) == 0:
+        print('no wells in selection', arg_dict)
+    return sh
+
+
 def txt2list(file):
     """ assemble a list from text file with variable items per line, sep='\t'
-            returns list with sublists of variable length """
+        returns list with sublists of variable length. If only one item per line
+        then a single list with each line as one string is delivered. Otherwise list of lists """
     mylist = []
     with open(file, 'rU') as f:
         for line in f:
             n = line.split('\t')
             mylist.append([x.strip() for x in n])
+    if max([len(x.split('\t')) for x in mylist]) == 1:
+        mylist = [x[0] for x in mylist]
     return mylist
 
 
@@ -23,7 +43,7 @@ def get_shn(file):
     return shn
 
 
-def get_flist(path, ext, shn=False):
+def get_flist(path, ext, shn=False, split=1):
     """ assemble list of absolute paths of files in top level of folder
             with specified file extension, if shn=true return dictionary of 
             with key as shortname and value as full file path in addition to flist"""
@@ -47,7 +67,7 @@ def get_flist(path, ext, shn=False):
         print('error, file extension for file list builder not provided')
 
 
-def getdeskpath():
+def check_desktop():
     """ grab the current desktop working directory for whichever machine in use,
             need to add additional options to the list if desired """
     dtops = ['/Volumes/WRBHDD/wrb/Desktop/', '/Users/wrb/Desktop/']
@@ -56,16 +76,20 @@ def getdeskpath():
             return d
 
 
-def tolist(string, s=False):
+def tolist(string, spl='_', unq=False):
     """ returns list of plate short names from absolute paths
-            default list, if s=True is passed then a set is returned"""
+        default list, if s=True is passed then a unique set is returned"""
     # convert terminal escaped spaces into underscore
-    l = string.replace('\ ', '_')
+    try:
+        l = string.replace('\ ', '_')
+    except AttributeError:
+        l = string
     l = l.split()
     l = [x.strip() for x in l]
     l = [os.path.split(x)[1] for x in l]
-    l = [x.split('_')[0] for x in l]
-    if s == False:
+    if spl is not None:
+        l = [x.split(spl)[0] for x in l]
+    if unq == False:
         return l
     elif s == True:
         return set(l)
@@ -73,7 +97,7 @@ def tolist(string, s=False):
 
 def convert_to_addr(path):
     """ loop through gct files in folder and ensure that the column headers
-            are in plate:well format, rewriting over files as necessary """
+        are in plate:well format, rewriting over files as necessary """
     flist = get_flist(path, '.gct')
     for f in flist:
         shn = get_shn(f).split('-')[0]
@@ -108,61 +132,72 @@ def addr_id_df(df):
     return df
 
 
-def platelist(string):
-    d = getdeskpath()
-    fp = os.path.join(d, 'platelist.txt')
-    l = tolist(string)
-    savelist(l, fp)
-
 
 def savelist(l, path):
+    """ save the list to text file in given path, one item per line """
     with open(path, 'w') as out_file:
         csvwriter = csv.writer(out_file, delimiter='\t')
         for el in l:
             csvwriter.writerow([el])
 
 
+def clip(l):
+    """ using pyperclip, copy a passed list to clipboard, one per line """
+    s = str(l)
+    chars = ['[', ']', '{', '}', ',', "'", '"']
+    for c in chars:
+        s = s.replace(c, '')
+    s = s.replace(' ', '\n')
+    s = s.replace('\n\n', '\n')
+    if pyperclip:
+        pyperclip.copy(s)
+        print('list copied to clipboard (one element per line)')
+    else:
+        print('sorry, pyperclip not installed')
+
 def receipts(rcpts):
+    """ accepts list of receipts pasted in as string, returns the sum of those receipt subtotals """
     l = rcpts.replace('\ ', '_').strip()
     l = rcpts.replace('\\', '')
     l = l.split()
     l = [x.strip() for x in l]
     l = [os.path.split(x)[1] for x in l]
-    print(l)
-    l = [float(x.split('_')[2]) for x in l]
-    print(l)
-    return sum(l)
+    dollars = [float(x.strip('$').replace(',','')) for x in l if '$' in x]
+    # l = [float(x.split('_')[2]) for x in l]
+    return '${:,.2f}'.format(round(sum(dollars), 2))
 
 
-def swap_index(df, old, new):
-    df[old] = df.index.values
-    df.set_index(new, inplace=True)
-    df[new] = df.index.values
-    return df
+def truncate_doses(path):
+    fl2 = get_flist(path, ext='.xlsx')
+    fl1 = get_flist(path, ext='.xls')
+    if fl1 is not None:
+        fl = fl1 + fl2
+    else:
+        fl = fl2
+    for f in fl:
+        m = pd.read_excel(f)
+        dosecol = [x for x in m.columns if 'dose' in x]
+        m[dosecol] = m[dosecol].apply(lambda x: limitthreenonzero(x))
+        m['name'] = m['name'].replace('DMSO', '')
+        outpath = path.replace('.xl','-2.xl')
+        m.to_excel(outpath)
 
-
-def edit_files(path):
-    skiplines = 2
-    flist = gct.get_flist(path, 'consensus.gct')
-    for f in flist:
-        shn = os.path.split(f)[1].split('_')[0]
-        # define new file name here
-        outpath = f.replace('consensus', 'consensus2')
-        with open(f, 'rU') as in_file, open(outpath, 'w', newline='') as out_file:
-            linereader = csv.reader(in_file, delimiter='\t')
-            csvwriter = csv.writer(out_file, delimiter='\t')
-            # skip down until reach place of interest
-            for i in range(skiplines):
-                csvwriter.writerow(next(linereader))
-            # now modify lines of interest
-            line = next(linereader)
-            if ':' not in line[3]:
-                line = [shn + ':' + x for x in line]
-                line[0] = 'id'
-            csvwriter.writerow(line)
-            # then copy the rest overy
-            for line in linereader:
-                csvwriter.writerow(line)
+def limitthreenonzero(myfloat):
+    num = str('{:.20f}'.format(myfloat))
+    i = 0
+    newnum = ''
+    for el in num:
+        if (el == '0' or el == '.') and i == 0:
+            newnum += el
+        else:
+            i += 1
+            newnum += el
+        if i == 3:
+            break
+    for i in [0,1]:
+        if newnum[-1] == '0':
+            newnum = newnum[:-1]
+    return newnum
 
 
 def check_headers(path):
@@ -293,8 +328,8 @@ def separate_subset(path, dest, mylist, st1=None, st2=None, d=False):
             shutil.copy(f, fdest)
 
 
-def loud_wells(path):
-    """ arg1 = path. looks through for gcts and makes counter for wells at the top"""
+def loud_wells(path, numwells=50):
+    """ arg1 = path. looks through for gcts and makes counter for wells with largest cumulative prom scores """
     flist = get_flist(path, '.gct')
     for f in flist:
         d, h = gct.extractgct(f)
@@ -305,33 +340,31 @@ def loud_wells(path):
         p.to_csv(outpath, sep='\t')
 
     wells = []
-    numwells = 50
     promlist = get_flist(path, 'promiscuity.txt')
     for f in promlist:
         with open(f, 'rU') as file:
-            for i in range(1,51):
+            # read through number of lines specified
+            for i in range(1,numwells+1):
                 line = file.readline()
                 well = line.split('\t')[0].split(':')[1]
                 wells.append(well)
     
     cdct = cll.Counter(wells)
-
     cdct = pd.Series(cdct)
     cdct = cdct.sort_values(ascending=False)
     cdct.to_csv(os.path.join(path, 'loud_wells.txt'), sep='\t')
 
 
 def get_awells():
-  # returns list of 384 three character well IDs
-  awells = []
-  #rows = string.ascii_uppercase[0:16]
-  rows = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"]
-  cols = range(1,25)
-  for l in rows:
-    for n in cols:
-      # join lettrs and nums with 2 characater num format
-      awells.append(l + str('{:02d}'.format(n)))
-  return awells
+    """ returns list of 384 three character well IDs """
+    awells = []
+    rows = string.ascii_uppercase[0:16]
+    cols = range(1,25)
+    for l in rows:
+        for n in cols:
+            # join lettrs and nums with 2 characater num format
+            awells.append(l + str('{:02d}'.format(n)))
+    return awells
 
 
 def well_range(startlet, stoplet, startcol, endcol):

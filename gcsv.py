@@ -13,7 +13,7 @@
 import pandas as pd
 import numpy as np
 import collections as cll
-import os, csv, gct, sys, pt, gt
+import os, csv, gct, sys, pt, gt, math
 import pickle
 
 
@@ -61,6 +61,8 @@ def load_cpanel(path, pan=False):
 
 
 def summarize_csvs(path):
+    """ provide path containing csv files to generate output summarizing levels 1 and 10
+    for the plate as well as the posamp and ref """
     if path is None:
         path = gt.dflt_outpath(fldr_name='csv')
     results = cll.defaultdict(dict)
@@ -137,7 +139,7 @@ def check_11499(csvf):
 def split_out_csv(csvf, d, outpath):
     """ takes in a larger csvfile to pull from, a dictionary 'd' mapping original to destination well,
     an outpath for the file. requires initial csv file, a dictionary of source: destination well mapping
-    !! but is that dictionary in 2 or 3 character well format? !!
+    !!  that dictionary in 2 character well format !!
     counts are automatically scaled up 1.5x (but 499 and 11 left alone) """
     with open(csvf, 'rU') as in_file, open(outpath, 'w', newline='') as out_file:
         # set up csv file line writers and readers
@@ -201,18 +203,31 @@ def split_out_csv(csvf, d, outpath):
                 continue
 
 
-def adj_csv(csvf, outpath='dflt', mywells='all', pmap=None, adj_vect=None, separate=False, fixcounts=False, scalefact=1):
+def adj_csv(csvf, outpath='dflt', mywells='all', pmap=None, adj_vect=None, separate=False, fixcounts=False,
+            scalefact=1, adj_mode='center'):
     """ adjusts a csv file (whole or from list of wells) adjusting well values either by applying an adj_vector
     to each well, or by a scalefactor to each well. if a platemap is provided, then batch adjustment vectors will
     be applied. if separate is True only the wells in mywells list are written to file, otherwise only those are
     edited but all wells are copied over to new file. fixcounts ajdusts counts by 1.5, but if the file has been
-    split out from a consolidated csv into sub RPTWLS files the count adjustment has been applied then """
+    split out from a consolidated csv into sub RPTWLS files the count adjustment has been applied then
+
+     new: adj_mode='center' is default and will apply adjustment vector (typically difference from medians),
+     but if it's a list or tuples of numers you can combine a baseline subset value and plate value in a
+     damping manner my specifying plate-based weight, local sample based-weight
+
+     """
     if outpath is 'dflt':
         # outpath = csvf.strip('.csv') + '_adjusted.csv'
         if 'DP52' in csvf:
-            outpath = csvf.replace('DP52_', 'DP52_a')
+            if 'DP52_' in csvf:
+                outpath = csvf.replace('DP52_', 'DP52_a')
+            else:
+                outpath = csvf.replace('DP52', 'DP52_a')
         elif 'DP53' in csvf:
-            outpath = csvf.replace('DP53_', 'DP53_a')
+            if 'DP53_' in csvf:
+                outpath = csvf.replace('DP53_', 'DP53_a')
+            else:
+                outpath = csvf.replace('DP53', 'DP53_a')
 
     if mywells is 'all':
         mywells = get_2char_ids(pt.get_awells())
@@ -221,7 +236,10 @@ def adj_csv(csvf, outpath='dflt', mywells='all', pmap=None, adj_vect=None, separ
     if adj_vect is None:
         adj_vect = [0] * 500
 
-    print('adjusting ' + str(mywells))
+    if len(mywells) > 34:
+        print(print('adjusting ' + str(len(mywells))))
+    else:
+        print('adjusting ' + str(mywells))
 
     with open(csvf, 'rU') as in_file, open(outpath, 'w', newline='') as out_file:
         linereader = csv.reader(in_file, delimiter=',', quotechar='"')
@@ -262,13 +280,27 @@ def adj_csv(csvf, outpath='dflt', mywells='all', pmap=None, adj_vect=None, separ
                             # if a plate map is provided, applies the per-batch adj-vector (which should be dict)
                             # otherwise applies a global adj_vector as a list to each well
                             if pmap is not None:
-                                b = pmap[pmap['well'] == well]['batch'].values[0]
+                                try:
+                                    b = pmap[pmap['well'] == well]['batch'].values[0]
+                                except IndexError:
+                                    b = pmap[pmap['well'] == well]['batch'].values
                                 z = zip(vals, list(adj_vect[b]))
                             else:
                                 z = zip(vals, list(adj_vect))
+                            # for regular adjustment vectors:
                             # combines scaled new with adj values using weights above
-                            newvals = [abs(x[0] + x[1]) for x in z]
-                            # insert new values into the line to be written
+                            if adj_mode == 'center':
+                                newvals = [abs(x[0] + x[1]) for x in z]
+                            else:
+                                try:
+                                    p_wght = adj_mode[0]
+                                    s_wght = adj_mode[1]
+                                    print('adjusting plate to fill] in : ', p_wght, s_wght)
+                                    newvals = [(p_wght * subv) + (s_wght * platev) for subv, platev in z]
+                                except:
+                                    print('if mode isnt center, it should be a weight between plate and subset')
+                                    break
+                                # insert new values into the line to be written
                             line[2:502] = newvals
                             csvwriter.writerow(line)
                             continue
@@ -354,8 +386,19 @@ def bulk_open_as_gct(path, drop_inv=False):
 def open_as_gct(file, log=False):
     csv = Gcsv(file)
     df = csv.transform_to_gct()
+    #print(df.iloc[0,:])
     if log is True:
-        df = df.applymap(lambda x: '{:.3f}'.format(math.log(x, 2)))
+        # set 0's to 1s for log not to break
+        try:
+            df = df.drop('NaN')
+        except:
+            print('no NaN to drop')
+        temp = df.copy()
+        temp[temp==0] = np.nan
+        minval = temp.min()[0]
+        print(minval)
+        df[df==0] = minval
+        df = df.applymap(lambda x: round(math.log(x, 2), 3))
     return df
 
 

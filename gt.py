@@ -1,7 +1,8 @@
 #!/usr/bin/python
 """ this is a general tools script which contains many common handy functions """
 
-import os, csv, glob, string, shutil, gt
+import os, csv, glob, string, shutil, gt, gct
+import skyline
 import pandas as pd
 import numpy as np
 import collections as cll
@@ -13,7 +14,48 @@ except:
     pass
 
 
+def get_well_reps(h, well, cats, df=False):
+    """ return list of well addresses of other wells in the header file matching the
+    provided categories as the passed well. n=name, d=dose, c=cell, b=batch
+    returns list of addrs unless df is True, then it passes bach header dataframe of those wells"""
+    args = []
+    if len(well) == 3:
+        well = h.index[0][:-3] + well
+    if 'n' in cats:
+        args.append('name')
+    if 'd' in cats:
+        args.append('dose')
+    if 'b' in cats:
+        args.append('batch')
+    if 'c' in cats:
+        args.append('cell')
+
+    argdict = {}
+    try:
+        mywell = h.loc[well]
+    except KeyError:
+        print(f'{well} well not found in index')
+        return 'empty'
+    print(mywell)
+    for a in args:
+        argdict[a] = mywell[a]
+
+    matches = gt.hsub(h, argdict)
+    if df is True:
+        return matches
+    else:
+        return list(matches.index.values)
+
+
+def splitpaths(pathlist, ext):
+    pathlist = pathlist.replace(ext, ext+'å').replace('Macintosh HD', '')[:-1]
+    pathlist = pathlist.split('å')
+    return pathlist
+
+
 def get_genes(genes, df=None):
+    """ returns genes, with shortcuts of 'test1', 'test2' which is 12, 'test100' will plot first 100
+     genes, and 'all' will return all genes in index """
     # check for gene arguments, and fill 'test' and 'all'
     if genes is 'test1':
         genes = ['200678_x_at']
@@ -225,7 +267,8 @@ def breakdown(df,h,cats, dic=True, genes=None):
           'b': 'batch',
           'd': dose_col,
           'n': 'name',
-          'w': 'well'}
+          'w': 'well',
+          'p': 'plate'}
 
     clist = []
 
@@ -271,11 +314,28 @@ def breakdown(df,h,cats, dic=True, genes=None):
         return subs
 
 
-def assemble_consensus(df, h, cats, ccs=True, plot=False, n=None):
+def assemble_consensus(df, h, cats, ccs=True, plot=False, skyl=False, n=None, save=False, test=False):
     """ tool to assemble replicate zscore consensus, pass df, header and the breakdown categories 'nd' for instance
     will return the consolidated df and header file
 
-    the optional n argument is a limiter to only consider treatments with enough replicates"""
+    ccs will calculate the zscore correlation of replicates, and insert that into header df
+    plot will use seaborn pairplot to visualize the calculated rep correlations above
+    skyl controls skyline plot generation, can be True to plot all ind reps plus consensus
+    n argument is a limiter to only consider treatments with enough replicates, including into consensus gct!!
+    save will save the consensus gct file
+    """
+
+    if isinstance(df, str):
+        df, h = gct.extractgct(df)
+
+    outpath = gt.dflt_outpath(fldr_name='output figs')
+    pname = df.name
+    try:
+        os.mkdir(os.path.join(outpath, pname))
+    except:
+        pass
+
+    outpath = os.path.join(outpath, pname)
 
     subs = breakdown(df, h, cats, dic=False)
 
@@ -303,21 +363,52 @@ def assemble_consensus(df, h, cats, ccs=True, plot=False, n=None):
             for i in range(len(ds.columns)):
                 for j in range(1 + i, len(ds.columns)):
                     corrs.append(round(ds.iloc[:, i].corr(ds.iloc[:, j], method='pearson'), 2))
-            new_annot['corr'] = round(np.percentile(corrs, 75), 2)
-            new_annot['all ccs'] = corrs
+            if len(corrs) == 0:
+                print('corrs = na')
+                print(hs.iloc[0].values)
+                new_annot['corr'] = 'na'
+                new_annot['all ccs'] = 'na'
+            elif len(corrs) == 1:
+                new_annot['corr'] = corrs
+                new_annot['all ccs'] = corrs
+            else:
+                new_annot['corr'] = round(np.percentile(corrs, 75), 2)
+                new_annot['all ccs'] = corrs
 
         if plot is True:
             ds.columns = [x + ' - ' + hs.loc[x]['batch'] for x in ds.columns]
             ax = sns.pairplot(ds)
-            outpath = gt.dflt_outpath(fldr_name='output figs')
-            plt.savefig(os.path.join(outpath, ds.name + '.png'))
+            myoutpath = os.path.join(outpath, 'rep zs scatter')
+            try:
+                os.mkdir(myoutpath)
+            except:
+                pass
+            plt.savefig(os.path.join(myoutpath, h.plate[0] + '-' + ds.name + '.png'))
             plt.close()
 
         con_header = pd.concat([con_header, new_annot], axis=1)
 
+        if skyl is True:
+            myoutpath = os.path.join(outpath, 'skyline')
+            try:
+                os.mkdir(myoutpath)
+            except:
+                pass
+            name = hs.iloc[0]['name'] + '-' + hs.iloc[0]['dose']
+            name = name.replace('.', ',')
+            title = pname + '-' + name
+            myoutpath = os.path.join(myoutpath, title)
+            skyline.new_skyline(ds, title=title, outpath=myoutpath)
+
+        if test is True:
+            break
+
     con_header = con_header.T
 
-    return con_data, con_header
+    if save is False:
+        return con_data, con_header
+    elif save is True:
+        gct.save_headergct(con_data, gt.dflt_outpath(fn=df.name+'_consensus.gct'), con_header)
 
 
 def txt2list(file):
@@ -572,10 +663,17 @@ def wells_range(well_list):
     """ returns list of 3char ids of all well range tuples in the list, can string multiple together
     well_list = [('A23','E23'),('B01','F06')]"""
     wells = []
-    for w in well_list:
-        wells.extend(well_range(w[0], w[1]))
-    print('length: ', len(wells))
-    return wells
+    if 'top' in well_list or 'bot' in well_list:
+        if 'top' in well_list:
+            wells.extend(well_range('C11', 'F14'))
+        if 'bot' in well_list:
+            wells.extend(well_range('K11', 'N14'))
+        return wells
+    else :
+        for w in well_list:
+            wells.extend(well_range(w[0], w[1]))
+        print('length: ', len(wells))
+        return wells
 
 
 def well_range(upper_left, lower_right):

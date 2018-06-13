@@ -7,6 +7,28 @@ import numpy as np
 import gct, math
 
 
+def convert_to_txt(path):
+    fl = gt.get_flist(path, '.xlsx')
+    opath = '/Users/WRB/Desktop/newmaps/'
+    for f in fl:
+        m = pd.read_excel(f)
+        shn = gt.get_shn(f).strip('.xlsx')
+        outpath = os.path.join(opath, shn +'.txt')
+        m.to_csv(outpath, sep='\t', index=False)
+
+
+def list_fails(path):
+    fl = gt.get_flist(path)
+    for f in fl:
+        if f.endswith('.txt'):
+            m = pd.read_table(f, index_col=False)
+        elif f.endswith('.xlsx'):
+            m = pd.read_excel(f)
+        fw = m[m['type']=='failed']['well'].values
+        shn = gt.get_shn(f)
+        print(shn, fw)
+
+
 def compare_files(path1, path2, show=False):
     difflines = []
     line_count = 0
@@ -47,17 +69,24 @@ def ctup(df, arg_dict, col=':', u=True, lst=False):
     return r
 
 
-def plate_map_vis(myseries, path='dflt'):
+def plate_map_vis(myseries, cmap='dflt', path='dflt'):
     """ just translate directly into a dict or overwrite to use?
     returns just the array to plot """
-    xltr = dict(zip(myseries.unique(), range(0,len(myseries.unique()))))
-    #data = myseries.dropna().apply(lambda x: xltr[x])
-    data = myseries.apply(lambda x: xltr[x])
+    num_cats = len(myseries.unique())
+    cat2num = dict(zip(myseries.unique(), range(num_cats)))
+    data = myseries.apply(lambda x: cat2num[x])
+    if cmap == 'dflt':
+        if num_cats < 10:
+            cmap = 'tab10'
+            maxcats = 10
+        else:
+            camp = 'tab20'
+            maxcats = 20
     if path is 'dflt':
         outpath = gt.dflt_outpath(fn=myseries.name)
     else:
         outpath = os.path.join(path, myseries.name)
-    plottools.plot_plateplot(data, outpath=outpath, label=data.name, cmap='tab10', clrbar=xltr)
+    plottools.plot_plateplot(data, outpath=outpath, label=data.name, ncats=maxcats, cmap=cmap, clrbar=cat2num)
 
 
 def summarize_doses(h):
@@ -65,18 +94,22 @@ def summarize_doses(h):
     res = gt.hsub(h, {'type':'test'})['dilution'].groupby(h['name']).unique()
     return res
 
-def check_maps(path, compare=True, img=True, v=True):
-    """ looks through .txt and .xlsx maps in a directory and summarizes their content and relationship with each other,
-    as well as generating plate visualizations of type and batch for each plate. V for verbose, lists names and doses per plate """
 
-    plot_fields = ['type', 'batch']
+def check_maps(path, compare=True, img=True, v=True, filt=True):
+    """ looks through .txt and .xlsx maps in a directory and summarizes their content and relationship with each other,
+    as well as generating plate visualizations of type and batch for each plate. V for verbose, lists names and doses per plate
+     if filter is true, just observe 6character name excel files, otherwise consider all files"""
+
+    # plot_fields = ['type', 'batch']
+    plot_fields = ['type']
     # add checks to add batch and dose if present
 
     pert_dict, map_list = {}, {}
     wellpert_dict = {}
 
     flist = gt.get_flist(path, ext='.xlsx')
-    flist = [x for x in flist if len(os.path.split(x)[-1]) == 11]
+    if filt is True:
+        flist = [x for x in flist if len(os.path.split(x)[-1]) == 11]
     if len(flist) == 0:
         flist = gt.get_flist(path, ext='.txt')
         flist = [x for x in flist if len(os.path.split(x)[-1])==10]
@@ -121,8 +154,9 @@ def check_maps(path, compare=True, img=True, v=True):
 
         # check wells for full plate
         well_result = set(awells) - set(m['well'].values)
+
         if len(well_result) != 0:
-            print('{} wells error, {} entries - {}'.format(pname, len(m.index), well_result))
+            print('{} wells error, {} entries'.format(pname, len(m.index)))
 
         if v is True:
             print(gt.hsub(m, {'type':'test'})['name'].dropna().unique())

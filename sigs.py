@@ -30,6 +30,11 @@ def sig_survey(inst, cust=None):
         elif len(cust) > 1:
             for num in cust:
                 threshs.append(float(num))
+    try:
+        inst = inst[inst.columns[0]]
+    except AttributeError:
+        pass
+
     for t in threshs:
         sigdict[t].append(len(inst[inst >= t]))
         sigdict[t].append(len(inst[inst <= -t]))
@@ -40,7 +45,11 @@ def sig_survey(inst, cust=None):
 
 
 def get_sig(inst, t):
-    """ put in pd.series of zscore values with zscore threshold, returns up/down list"""
+    """ put in pd.series of zscore values with zscore threshold, returns up,down lists"""
+    try:
+        inst = inst[inst.columns[0]]
+    except AttributeError:
+        pass
     up = inst[inst >= t].index.values
     dn = inst[inst <= -t].index.values
     return up, dn
@@ -48,7 +57,7 @@ def get_sig(inst, t):
 
 def save_sig(inst, t, gs=False, name='dflt', path='dflt'):
     """ automatically save generated signature with default or provided file name
-    and destination folder """
+    and destination folder. gs flag saves things in terms of gene symbols """
     if name is 'dflt':
         name = inst.name
         try:
@@ -89,6 +98,10 @@ def bulk_test_enrich(df, up, dn, h=None, outpath=False):
             outpath = gt.dflt_outpath(fn=df.name + '_enrichment.xlsx')
         edf.to_excel(outpath)
     return edf
+
+
+def make_barview(df, up, dn, argdict):
+    """ given an edf header file with enrichment info, and an argument dictionary """
 
 
 def test_enrichment(inst, up, dn):
@@ -182,14 +195,7 @@ def run_granularity(path):
 
 
 def main():
-    l1 = ['a', 'b', 'c']
-    l2 = ['e', 'f', 'g']
-    l3 = ['c', 'd', 'e']
-
-    mysets = [l1, l2, l3]
-    labels = ['l1', 'l2', 'l3']
-
-    res = overlap_matrix(mysets, labels)
+    pass
 
 
 if __name__ == '__main__':
