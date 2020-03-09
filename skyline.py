@@ -1,15 +1,39 @@
 #!/usr/bin/python
+
 '''
-1/28/17 - separeted out from the growing plateanalysis script 
-into justh the skyline plotting script, calling functions 
+1/28/17 - separeted out from the growing plateanalysis script
+into justh the skyline plotting script, calling functions
 from plateanalysis as needed
 '''
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
-import gct, os, pt, gt
-import plateanalysis
+import gct, os, gt, pa
 
+
+def make_plots_from_list(d, h, welllist, cats='nd', outpath='dflt', test=False):
+    """ take a list of well ids (can be 3 char) and gets the matching reps with provided
+    cats, and then plots skylines from the reps """
+    pname = d.name
+    if outpath == 'dflt':
+        outpath = gt.dflt_outpath()
+    for w in welllist:
+        wells = gt.get_well_reps(h, w, cats, df=True)
+        try:
+            if wells == 'empty':
+                continue
+        except ValueError:
+            pass
+        name = wells.iloc[0]['name'] + '-' + wells.iloc[0]['dose']
+        name = name.replace('.', ',')
+        title = pname + '-' + name
+        wids = wells.index.values
+        wids = [x for x in wids if x in d.columns]
+        myoutpath = os.path.join(outpath, title)
+        new_skyline(d[wids], title=title, outpath=myoutpath)
+        if test is True:
+            print('test mode, exiting after one image')
+            break
 
 def sep_updown(well, t=0):
     """ pass a zscore instance and get back separate positive and negative vectors
@@ -55,14 +79,15 @@ def format_skyline_plot(ax):
 
 # add support for dictionary of highlights to have different classes/colors of highlight genes
 # with a labeled legend
-def plot_skyline(wells, highlights=None, cons=True, outpath='dflt', t=1, maxv=10, title='auto', line1=None, line2=None):
+def plot_skyline(wells, highlights=None, labels=None, cons=True, outpath='dflt', t=1, maxv=10, title='auto', line1=None, line2=None):
     """ well can either be a single instance (pd Series) or a list of replicate instances, or dataframe,
      in which case the consensus skyline will be generated and plotted. maxv is yscale, 10 dflt or 'auto'
      which sets based upon max value in the dataset. line 1 and line 2 may contain metadata
      for labelling the plot, and highlights accepts a list of genes to be accented
      cons (consensus) default is True, and will assemble local consensus from passed wells.
      cons can also be set to False or None, where just the individual wells will be plotted.
-     lastly, a precomputed consensus vector can be passed in which will be used """
+     lastly, a precomputed consensus vector can be passed in which will be used instead of calculating.
+     labels will add a second line of text to the right side y label of each well """
     # check if wells is long its just a single series, and put it in a list container
     # otherwise if wells is multiple replicate instances (length 2-5) leave as is
     try:
@@ -71,6 +96,8 @@ def plot_skyline(wells, highlights=None, cons=True, outpath='dflt', t=1, maxv=10
     except AttributeError:
         if len(wells) > 10:
             wells = [wells]
+        if len(wells) == 0:
+            print('empty wells')
     if outpath is 'dflt':
         outpath = gt.dflt_outpath(fldr_name='output figs')
         if title is 'auto':
@@ -81,19 +108,26 @@ def plot_skyline(wells, highlights=None, cons=True, outpath='dflt', t=1, maxv=10
     # sort genes in ascending alpha order for consistency
     [w.sort_index(inplace=True) for w in wells]
     names, data = [], []
-    for w in wells:
+    for i,w in enumerate(wells):
         data.append(sep_updown(w, t=t))
-        names.append(w.name)
+        if labels is not None:
+            names.append(w.name + '\n' + labels[i])
+        else:
+            names.append(w.name)
     # pass to external function to get consensus of wells if multiple instances
     if len(wells) > 1:
         if cons is True:
             c = well_consensus(wells, 'consensus')
-        elif cons is None or cons is False:
+            data.append(sep_updown(c, t=t))
+            names.append('consensus')
+        elif cons is None:
+            pass
+        elif cons is False:
             pass
         else:
             c = cons
-        data.append(sep_updown(c, t=t))
-        names.append('consensus')
+            data.append(sep_updown(c, t=t))
+            names.append('consensus')
     # define plot y axis max/min zscore by max value in data
     if maxv=='auto':
         maxval = 0
@@ -148,6 +182,7 @@ def plot_skyline(wells, highlights=None, cons=True, outpath='dflt', t=1, maxv=10
     plt.close()
 
 
+
 def new_skyline(wells, highlights=None, outpath='dflt', t=1, maxv=10, title='auto', info=None):
     # updated with pandas operators for easier consensus derivation
     """ well can either be a single instance (pd Series) or a list of replicate instances, or dataframe,
@@ -155,10 +190,13 @@ def new_skyline(wells, highlights=None, outpath='dflt', t=1, maxv=10, title='aut
      which sets based upon max value in the dataset. line 1 and line 2 may contain metadata
      for labelling the plot, and highlights accepts a list of genes to be accented """
     # assumes dataframe data type, or series
-    if outpath is 'dflt':
+    if isinstance(outpath, str) and outpath is 'dflt':
         outpath = gt.dflt_outpath(fldr_name='output figs')
-        if title is 'auto':
-            fn = wells.iloc[:,0].name.replace(':','-')
+        if title == 'auto':
+            try:
+                fn = wells.iloc[:,0].name.replace(':','-')
+            except:
+                fn = wells.name.replace(':','-')
         else:
             fn = title
         outpath = os.path.join(outpath, fn)
@@ -167,7 +205,7 @@ def new_skyline(wells, highlights=None, outpath='dflt', t=1, maxv=10, title='aut
     names, data = [], []
 
     # define plot y axis max/min zscore by max value in data
-    if maxv=='auto':
+    if isinstance(maxv, str) and maxv =='auto':
         maxval = 0
         for d in data:
             val1 = max(abs(d[0]))
@@ -176,9 +214,14 @@ def new_skyline(wells, highlights=None, outpath='dflt', t=1, maxv=10, title='aut
             if submax > maxval:
                 maxval = submax
         maxv = round(maxval) + 2
+
     # create figure
     try:
-        wells['consensus'] = gt.consensus(wells)
+        if len(wells.columns) == 0:
+            print('no wells for skyline')
+            return None
+        if len(wells.columns) > 1:
+            wells['consensus'] = pa.consensus(wells)
         l = len(wells.columns)
     except AttributeError:
         l = 1
@@ -214,14 +257,8 @@ def new_skyline(wells, highlights=None, outpath='dflt', t=1, maxv=10, title='aut
         # white line at zero
         ax.bar(range(978), np.zeros(978), width=1, facecolor='grey', edgecolor='grey')
 
-    # load in metadata from optional line arguments and incorporate into title on multiple lines
-    if title is 'auto':
-        title = pt.get_shn(outpath)
-    if info is not None:
-        title = title + '\n' + str(info)
-
     plt.suptitle(title)
-    plt.savefig(os.path.join(outpath, title + '.png'), facecolor="white")
+    plt.savefig(os.path.join(outpath + '.png'), facecolor="white")
     plt.close()
 
 

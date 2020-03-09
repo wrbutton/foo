@@ -1,17 +1,112 @@
 #!/usr/bin/python
 """ this is a general tools script which contains many common handy functions """
 
-import os, csv, glob, string, shutil, gt, gct
-import skyline
+import os, csv, glob, string, shutil, gt
 import pandas as pd
-import numpy as np
 import collections as cll
-import matplotlib.pyplot as plt
-import seaborn as sns
+
 try:
     import pyperclip
 except:
     pass
+
+def check_cat_shortcuts(cats):
+    """ a checker for standard plate name dose"""
+    args = []
+    if 'p' in cats:
+        args.append('plate')
+    if 'n' in cats:
+        args.append('name')
+    if 'd' in cats:
+        args.append('dose')
+    if 'b' in cats:
+        args.append('batch')
+    if 'c' in cats:
+        args.append('cell')
+    return args
+
+
+def fix_dose_3dig(num):
+    """ returns a decmial format of number with correct number of digits """
+    try:
+        numstr = f'{num:.20f}'
+    except:
+        return num
+    dflag= False
+    stop_pos, nonzerodigits = 0, 0
+    for i, dig in enumerate(numstr):
+        if dflag is True:
+            if nonzerodigits == 0:
+                if dig != '0':
+                    nonzerodigits += 1
+            elif nonzerodigits > 0:
+                nonzerodigits +=1
+                if nonzerodigits >= 4:
+                    stop_pos = i
+                    break
+        if dig == '.':
+            dec_pos = i
+            dflag = True
+    if stop_pos == 0:
+        return num
+    else:
+        ndecplaces = stop_pos - dec_pos - 1
+        #print(f'dec pos = {dec_pos}, stop pos = {stop_pos}, num = {num}')
+        mynum = round(num, ndecplaces)
+        #newnum = decimal.Decimal(mynum)
+        return mynum
+
+
+def check_dfltarg(obj, dflt, kind='str'):
+    """ performs check if argument is a string type, to then evaluate if == 'dflt' and pass back
+    gets rid of ipython bitching about passing differt types and trying to equate w/ strings """
+    if isinstance(obj, str) and obj == 'dflt':
+        try:
+            foo = dflt
+            return dflt
+        except:
+            return 'foo'
+    else:
+        #return [obj]
+        return obj
+
+
+def test_only(h):
+    """ strips header down to test wells only, and returns it
+     must be passed into dataframe to subset it """
+    h = hsub(h, {'type':'test'})
+    return h
+
+
+def overlap_matrix(mysets, labels):
+    """ pass in a list of lists/sets of identifiers, and the corresponding names of those
+    collections, and get in return a symmetric dataframe with pairwise count of overlaps amongst groups"""
+    results = pd.DataFrame(index=labels, columns=labels)
+    for cohort, label in zip(mysets,labels):
+        for comp, clabel in zip(mysets,labels):
+            res = len(set(cohort) & set(comp))
+            results.loc[label, clabel] = res
+    return results
+
+
+def dflt_name(df):
+    try:
+        name = df.name
+    except AttributeError:
+        name = df.columns[0].split(':')[0]
+    return name
+
+
+def delete_inf(path):
+    filelist = gt.globit(path, '*INF*')
+    folderlist = gt.globit(path, '*_final*')
+    folderlist = [x for x in folderlist if 'finalqc' not in x]
+    for f in filelist:
+        print(f)
+        os.remove(f)
+    for f in folderlist:
+        print(f)
+        shutil.rmtree(f)
 
 
 def get_well_reps(h, well, cats, df=False):
@@ -48,8 +143,18 @@ def get_well_reps(h, well, cats, df=False):
 
 
 def splitpaths(pathlist, ext):
-    pathlist = pathlist.replace(ext, ext+'å').replace('Macintosh HD', '')[:-1]
-    pathlist = pathlist.split('å')
+    """ when using the F6 shortcut to get paths for multiple files, they're all concatenated together.
+    by providing that long string plus the file extension to use to separate them, a separated list is returned
+    customized for my mac, does series of replaces to try the split, otherwise returns original """
+    try:
+        pathlist2 = pathlist.replace(ext, ext+'å').replace('Macintosh HD', '')[:-1]
+        pathlist2 = pathlist2.split('å')
+        pathlist2 = [x.lstrip('HDD') for x in pathlist2]
+        if len(pathlist2) == 1:
+            return pathlist
+        pathlist = pathlist2
+    except:
+        pass
     return pathlist
 
 
@@ -70,35 +175,6 @@ def get_genes(genes, df=None):
     return genes
 
 
-def consensus(ds, name='dflt'):
-    """ merges ZScore instances in a passed dataframe into a conservitive consensus - min abs value
-    as long as all reps agree on direction, otherwise zero. uses a fancy np.select method to set values
-    if name is 'dflt' the column name will be: FPA001:K03-N04_(3)
-    otherwise if name is 'first' name will just be first well FPA001:K03 (better for header integration) """
-    choices = [ds.min(axis=1), ds.max(axis=1)]
-    conds = [(ds > 0).all(axis=1), (ds < 0).all(axis=1)]
-    newdf = pd.Series(data=np.select(conds, choices, default=0), index=ds.index)
-    if name is 'dflt':
-        newdf.name = ds.columns[0] + '-' + ds.columns[-1].split(':')[-1] + '_(' + str(len(ds.columns)) + ')'
-    elif name is 'first':
-        newdf.name = ds.columns[0]
-    return newdf
-
-
-def create_desc_label(h, order='dflt',):
-    if order is 'dflt':
-        try:
-            i = h['dose']
-            h['desc'] = h['batch'] + '-' + h['name'] + '-' + h['dose']
-            # order = ['batch', 'name', 'dose']
-        except KeyError:
-            h['desc'] = h['batch'] + '-' + h['name']
-            # order = ['batch', 'name']
-    else:
-        h['desc'] = h[order].apply(lambda x: '-'.join(x), axis=1)
-    return h['desc']
-
-
 def copyout(path, term, outpath='dflt', rc=True):
     """ local copy files function, specify destination path, searchterm with wilcards, oupath and recursive
     aruments assumed """
@@ -111,7 +187,12 @@ def copyout(path, term, outpath='dflt', rc=True):
 
 def globit(path, term, rc=True):
     """ a wrapped recursive glob function """
-    fl = glob.glob(path + '/**/*' + term, recursive=True)
+    if '*' not in term:
+        term = '*' + term + '*'
+    try:
+        fl = glob.glob(path + '/**/*' + term, recursive=True)
+    except TypeError:
+        fl = glob.glob(path + term)
     return fl
 
 
@@ -155,7 +236,8 @@ def gather_rows(path, searchstring, ext='all', save=False):
 def dflt_outpath(fldr_name='foo', path='dflt', fn=None):
     if path is 'dflt':
         path = gt.check_desktop()
-    path = path + fldr_name
+    if fldr_name is not None:
+        path = path + fldr_name
     try:
         os.makedirs(path)
     except OSError:
@@ -163,17 +245,6 @@ def dflt_outpath(fldr_name='foo', path='dflt', fn=None):
     if fn:
         path = os.path.join(path, fn)
     return path
-
-
-def overlap_matrix(mysets, labels):
-    """ pass in a list of lists/sets of identifiers, and the corresponding names of those
-    collections, and get in return a symmetric dataframe with pairwise count of overlaps amongst groups"""
-    results = pd.DataFrame(index=labels, columns=labels)
-    for cohort, label in zip(mysets,labels):
-        for comp, clabel in zip(mysets,labels):
-            res = len(set(cohort) & set(comp))
-            results.loc[label, clabel] = res
-    return results
 
 
 def isnum(s):
@@ -209,6 +280,7 @@ def dsub(d,h, arg_dict, name='dflt'):
         try:
             ds.name = d.name + '_sub'
         except AttributeError:
+            print('no dsub name')
             pass
     else:
         ds.name = name
@@ -218,40 +290,54 @@ def dsub(d,h, arg_dict, name='dflt'):
 def hsub(h, arg_dict, sep=False):
     """ takes in dictionary of {param: value} to scrape folder and return data meeting criteria,
     dictionary value may be a list, in which case any value of list is acceptable.
-    returns the filtered header file. if d=dataframe is specified returns ds, hs as pre-filtered data too
+    returns the filtered header file.
     if sep is true, then a passed list will result in a list of the results rather than
     a combined result of all of them, so a list of lists"""
+
     sh = h
     for c, v in arg_dict.items():
-        if isinstance(v, str):
-            sh = sh[sh[str(c)] == str(v)].copy()
+        if isinstance(v, list):
+            sh = sh[sh[str(c)].isin([str(x) for x in v])].copy()
         else:
             try:
-                if sep is True:
-                    sh = [sh[sh[str(c)] == str(x)] for x in v].copy()
-                elif sep is False:
-                    sh = sh[sh[str(c)].isin([str(x) for x in v])].copy()
+                sh = sh[sh[c] == v].copy()
             except:
-                print('error with filter dictionary value')
+                try:
+                    sh = sh[sh[str(c)] == str(v)].copy()
+                except:
+                    print(arg_dict.items())
+                    print('error with filter dictionary value')
     if len(sh.index.values) == 0:
         print('no wells in selection', arg_dict)
     return sh
 
 
-def breakdown(df,h,cats, dic=True, genes=None):
-    """ takes a dataframe and header and the categories to break down by 'b' batch, 'c' cell, 'n' name, 'd' dose.
-    returns a dictionary with the key as the description and the dataframe as the value.
-    'w' is also supported as breakdown by well - useful for many plates with identical layout
+def dose_to_um(h):
+    """ edits a header to remove extra leading zeros from  Molar denominated dose info, down to µM """
 
-    if dic is True a dictionary is returned, with a key title and dataframe value
-    if dic is False then list is returned, of tuples with dataframe and header
+    h['dose'] = h['dose'].apply(lambda x: x * 10^6)
 
-    """
+    return h
 
-    if genes is not None:
-        genes = get_genes(genes)
-        df = df.loc[genes]
 
+def cats_lookup(cats, dc='dose'):
+    """ pre-stored dictionary to support shortcut categories """
+
+    cd = {'c': 'cell',
+          'b': 'batch',
+          'd': 'dose',
+          'n': 'name',
+          'w': 'well',
+          'p': 'plate'}
+
+    categories = [cd[c] for c in cats]
+
+    return categories
+
+
+def gen_label(h, cats, delim=':'):
+    """ merges the passed categories into a new 'label' column in header, returns label embedded by default
+    c cell, b batch, d dose, p plate, n name, w well """
     if 'd' in cats:
         try:
             dose_col = [x for x in h.columns if 'dose' in x or 'dilution' in x][0]
@@ -260,155 +346,14 @@ def breakdown(df,h,cats, dic=True, genes=None):
     else:
         dose_col = None
 
-    vd = cll.OrderedDict()
-    subs = []
+    cols = cats_lookup(cats, dc=dose_col)
 
-    cd = {'c': 'cell',
-          'b': 'batch',
-          'd': dose_col,
-          'n': 'name',
-          'w': 'well',
-          'p': 'plate'}
-
-    clist = []
-
-    for c in cats:
-        try:
-            clist.append(cd[c])
-        except IndexError:
-            print('error, more than 3 categories')
-
-    cat1 = clist[0]
-    group1 = sorted(h[cat1].dropna().unique())
-    for e1 in group1:
-        argdict = {cat1: e1}
-        try:
-            cat2 = clist[1]
-            for e2 in sorted(gt.hsub(h, {cat1: e1})[cat2].dropna().unique()):
-                argdict.update({cat2: e2})
-                try:
-                    cat3 = clist[2]
-                    for e3 in sorted(gt.hsub(h, {cat1: e1, cat2: e2})[cat3].dropna().unique()):
-                        argdict.update({cat3: e3})
-                        hdr = f'{e1}-{e2}-{e3}'
-                        if dic is True:
-                            vd.update({hdr: gt.dosub(df,h, argdict, name=hdr)})
-                        else:
-                            subs.append(gt.dsub(df,h, argdict, name=hdr))
-                except IndexError:
-                    hdr = f'{e1}-{e2}'
-                    if dic is True:
-                        vd.update({hdr: gt.dosub(df, h, argdict, name=hdr)})
-                    else:
-                        subs.append(gt.dsub(df, h, argdict, name=hdr))
-        except IndexError:
-            hdr = f'{e1}'
-            if dic is True:
-                vd.update({hdr: gt.dosub(df, h, argdict, name=hdr)})
-            else:
-                subs.append(gt.dsub(df, h, argdict, name=hdr))
-
-    if dic is True:
-        return vd
-    else:
-        return subs
-
-
-def assemble_consensus(df, h, cats, ccs=True, plot=False, skyl=False, n=None, save=False, test=False):
-    """ tool to assemble replicate zscore consensus, pass df, header and the breakdown categories 'nd' for instance
-    will return the consolidated df and header file
-
-    ccs will calculate the zscore correlation of replicates, and insert that into header df
-    plot will use seaborn pairplot to visualize the calculated rep correlations above
-    skyl controls skyline plot generation, can be True to plot all ind reps plus consensus
-    n argument is a limiter to only consider treatments with enough replicates, including into consensus gct!!
-    save will save the consensus gct file
-    """
-
-    if isinstance(df, str):
-        df, h = gct.extractgct(df)
-
-    outpath = gt.dflt_outpath(fldr_name='output figs')
-    pname = df.name
     try:
-        os.mkdir(os.path.join(outpath, pname))
+        h['label'] = h[cols].applymap(str).apply(lambda x: delim.join(x),axis=1)
     except:
-        pass
-
-    outpath = os.path.join(outpath, pname)
-
-    subs = breakdown(df, h, cats, dic=False)
-
-    con_data = pd.DataFrame(index=df.index)
-    if ccs is True:
-        con_header = pd.DataFrame(index=np.concatenate([h.columns.values,['corr', 'all ccs']]))
-    else:
-        con_header = pd.DataFrame(index=h.columns)
-
-    for ds, hs in subs:
-        if n is not None:
-            if len(ds.columns) < n:
-                print('not enough reps', hs.iloc[0])
-                continue
-
-        c = consensus(ds, name='first')
-        con_data = pd.concat([con_data, c], axis=1)
-
-        new_annot = hs.iloc[0,:].copy().T
-        new_annot.well = hs['well'].values
-        new_annot.addr = hs['addr'].values
-
-        if ccs is True:
-            corrs = []
-            for i in range(len(ds.columns)):
-                for j in range(1 + i, len(ds.columns)):
-                    corrs.append(round(ds.iloc[:, i].corr(ds.iloc[:, j], method='pearson'), 2))
-            if len(corrs) == 0:
-                print('corrs = na')
-                print(hs.iloc[0].values)
-                new_annot['corr'] = 'na'
-                new_annot['all ccs'] = 'na'
-            elif len(corrs) == 1:
-                new_annot['corr'] = corrs
-                new_annot['all ccs'] = corrs
-            else:
-                new_annot['corr'] = round(np.percentile(corrs, 75), 2)
-                new_annot['all ccs'] = corrs
-
-        if plot is True:
-            ds.columns = [x + ' - ' + hs.loc[x]['batch'] for x in ds.columns]
-            ax = sns.pairplot(ds)
-            myoutpath = os.path.join(outpath, 'rep zs scatter')
-            try:
-                os.mkdir(myoutpath)
-            except:
-                pass
-            plt.savefig(os.path.join(myoutpath, h.plate[0] + '-' + ds.name + '.png'))
-            plt.close()
-
-        con_header = pd.concat([con_header, new_annot], axis=1)
-
-        if skyl is True:
-            myoutpath = os.path.join(outpath, 'skyline')
-            try:
-                os.mkdir(myoutpath)
-            except:
-                pass
-            name = hs.iloc[0]['name'] + '-' + hs.iloc[0]['dose']
-            name = name.replace('.', ',')
-            title = pname + '-' + name
-            myoutpath = os.path.join(myoutpath, title)
-            skyline.new_skyline(ds, title=title, outpath=myoutpath)
-
-        if test is True:
-            break
-
-    con_header = con_header.T
-
-    if save is False:
-        return con_data, con_header
-    elif save is True:
-        gct.save_headergct(con_data, gt.dflt_outpath(fn=df.name+'_consensus.gct'), con_header)
+        print(h)
+        h['label'] = h[cols].apply(str).apply(lambda x: delim.join(x))
+    return h
 
 
 def txt2list(file):
@@ -461,7 +406,7 @@ def get_flist(path, ext='all', shn=False):
 def check_desktop():
     """ grab the current desktop working directory for whichever machine in use,
             need to add additional options to the list if desired """
-    dtops = ['/Volumes/WRBHDD/wrb/Desktop/', '/Users/wrb/Desktop/', '/home/wrb/Desktop']
+    dtops = ['/Volumes/WRBHDD/wrb/Desktop/', '/Users/wrb/Desktop/', '/home/wrb/Desktop/', '/home/ec2-user/']
     for d in dtops:
         if os.path.exists(d):
             return d
@@ -471,10 +416,11 @@ def tolist(mystring, spl='_', uniq=False):
     """ returns list of plate short names from absolute paths
         default list, if uniq=True is passed then a unique set is returned"""
     # convert terminal escaped spaces into underscore
-    try:
-        lst = mystring.replace('\ ', '_')
-    except AttributeError:
-        lst = mystring
+    #try:
+    #    lst = mystring.replace('\ ', '_')
+    #except AttributeError:
+    #    lst = mystring
+    lst = mystring
     lst = lst.split()
     lst = [x.strip() for x in lst]
     lst = [os.path.split(x)[1] for x in lst]
@@ -689,6 +635,18 @@ def well_range(upper_left, lower_right):
             well = l + '{:02}'.format(i)
             well_list.append(well)
     return well_list
+
+
+def receipts(rcpts):
+    """ accepts list of receipt file ptahs pasted in as a big string, returns the sum of those receipt subtotals """
+    l = rcpts.replace('\ ', '_').strip()
+    l = rcpts.replace('\\', '')
+    l = l.split()
+    l = [x.strip() for x in l]
+    l = [os.path.split(x)[1] for x in l]
+    dollars = [float(x.strip('$').replace(',','')) for x in l if '$' in x]
+    # l = [float(x.split('_')[2]) for x in l]
+    return '${:,.2f}'.format(round(sum(dollars), 2))
 
 
 def main():

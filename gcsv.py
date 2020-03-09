@@ -13,51 +13,8 @@
 import pandas as pd
 import numpy as np
 import collections as cll
-import os, csv, gct, sys, pt, gt, math
+import os, csv, gct, sys, gt, math
 import pickle
-
-
-def cmbine_save(path, ctype):
-    combined = get_combined(path, ctype)
-    for filep in os.listdir(path):
-        if filep.endswith('.csv'):
-            c0 = Gcsv(filep)
-            break
-    csvf = os.path.join(path, c0.file)
-    fname = '{}_{}.csv'.format(c0.shortname, ctype)
-    output = os.path.join(path, fname)
-    save_csv(csvf, combined, output)
-
-
-def get_combined(path, ctype):
-    # quick method to get median or mean of a panel
-    panel = load_cpanel(path, pan=True)
-    if ctype == 'median':
-        combined = panel.median(axis=0)
-        print('generating media of panel')
-    elif ctype == 'mean':
-        combined = panel.mean(axis=0)
-        print('generating mean of panel')
-    else:
-        print('please enter valid combine type, returning blank')
-        combined = []
-    return combined
-
-
-def load_cpanel(path, pan=False):
-    # given folder path gets gct info and builds dframes for files
-    # either merges into panel, or returns 2 dicts of gcts and dframes
-    f_list = pt.get_flist(path, '.csv')
-    gd, dfd = {}, {}
-    for i, file in enumerate(f_list):
-        gn, dfn = 'c' + str(i), 'df' + str(i)
-        gd[gn] = Gcsv(file)
-        dfd[dfn] = gd[gn].build_dframe()
-    if pan == True:
-        panel = pd.Panel({i: df for i, df in enumerate(dfd.values())})
-        return panel
-    elif pan == False:
-        return gd, dfd
 
 
 def summarize_csvs(path):
@@ -66,7 +23,7 @@ def summarize_csvs(path):
     if path is None:
         path = gt.dflt_outpath(fldr_name='csv')
     results = cll.defaultdict(dict)
-    f_list = pt.get_flist(path, '.csv')
+    f_list = gt.get_flist(path, '.csv')
     for file in f_list:
         try:
             c = Gcsv(file)
@@ -83,10 +40,12 @@ def summarize_csvs(path):
     res.to_csv(outpath, sep='\t', float_format='%.0f')
 
 
-# method to save a dafaframe object with gct file structure and headers
 def save_csv(csvf, df, outpath):
+    # method to save a dafaframe object with gct file structure and headers back into csv format
+    # assumes that the df has samples as columns and rows as genes, will flip back to csv format
     df = df.fillna('NaN')
-    with open(csvf, 'rU') as in_file, open(outpath, 'w', newline='') as out_file:
+    df = df.T
+    with open(csvf, 'r') as in_file, open(outpath, 'w', newline='') as out_file:
         linereader = csv.reader(in_file, delimiter=',', quotechar='"')
         csvwriter = csv.writer(out_file, delimiter=',', quotechar='"',
                                                          quoting=csv.QUOTE_ALL)
@@ -121,7 +80,7 @@ def save_csv(csvf, df, outpath):
 
 
 def check_11499(csvf):
-    with open(csvf, 'rU') as in_file:
+    with open(csvf, 'r') as in_file:
         linereader = csv.reader(in_file, delimiter=',', quotechar='"')
         pd.options.display.float_format = '{i}'.format
         for line in linereader:
@@ -141,7 +100,7 @@ def split_out_csv(csvf, d, outpath):
     an outpath for the file. requires initial csv file, a dictionary of source: destination well mapping
     !!  that dictionary in 2 character well format !!
     counts are automatically scaled up 1.5x (but 499 and 11 left alone) """
-    with open(csvf, 'rU') as in_file, open(outpath, 'w', newline='') as out_file:
+    with open(csvf, 'r') as in_file, open(outpath, 'w', newline='') as out_file:
         # set up csv file line writers and readers
         linereader = csv.reader(in_file, delimiter=',', quotechar='"')
         csvwriter = csv.writer(out_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_ALL)
@@ -210,12 +169,11 @@ def adj_csv(csvf, outpath='dflt', mywells='all', pmap=None, adj_vect=None, separ
     be applied. if separate is True only the wells in mywells list are written to file, otherwise only those are
     edited but all wells are copied over to new file. fixcounts ajdusts counts by 1.5, but if the file has been
     split out from a consolidated csv into sub RPTWLS files the count adjustment has been applied then
-
      new: adj_mode='center' is default and will apply adjustment vector (typically difference from medians),
      but if it's a list or tuples of numers you can combine a baseline subset value and plate value in a
      damping manner my specifying plate-based weight, local sample based-weight
-
      """
+     
     if outpath is 'dflt':
         # outpath = csvf.strip('.csv') + '_adjusted.csv'
         if 'DP52' in csvf:
@@ -230,7 +188,7 @@ def adj_csv(csvf, outpath='dflt', mywells='all', pmap=None, adj_vect=None, separ
                 outpath = csvf.replace('DP53', 'DP53_a')
 
     if mywells is 'all':
-        mywells = get_2char_ids(pt.get_awells())
+        mywells = get_2char_ids(gt.get_awells())
     else:
         mywells = get_2char_ids(mywells)
     if adj_vect is None:
@@ -241,7 +199,7 @@ def adj_csv(csvf, outpath='dflt', mywells='all', pmap=None, adj_vect=None, separ
     else:
         print('adjusting ' + str(mywells))
 
-    with open(csvf, 'rU') as in_file, open(outpath, 'w', newline='') as out_file:
+    with open(csvf, 'r') as in_file, open(outpath, 'w', newline='') as out_file:
         linereader = csv.reader(in_file, delimiter=',', quotechar='"')
         csvwriter = csv.writer(out_file, delimiter=',', quotechar='"',
                                quoting=csv.QUOTE_ALL)
@@ -280,6 +238,7 @@ def adj_csv(csvf, outpath='dflt', mywells='all', pmap=None, adj_vect=None, separ
                             # if a plate map is provided, applies the per-batch adj-vector (which should be dict)
                             # otherwise applies a global adj_vector as a list to each well
                             if pmap is not None:
+                                well = get_3char_ids([well])[0]
                                 try:
                                     b = pmap[pmap['well'] == well]['batch'].values[0]
                                 except IndexError:
@@ -360,10 +319,10 @@ def get_3char_ids(wells):
 
 def bulk_open_as_gct(path, drop_inv=False):
     # no current support for repeat wells files
-    flist = pt.get_flist(path, '.csv')
+    flist = gt.get_flist(path, '.csv')
     pdict = cll.defaultdict(list)
     for f in flist:
-        shn = pt.get_shn(f)
+        shn = gt.get_shn(f)
         pdict[shn].append(f)
     for k, v in pdict.items():
         bsets = [x.split('_')[1] for x in v]
@@ -413,7 +372,7 @@ class Gcsv(object):
     def get_headers(self):
         # open file and extract the gct header information, storing dictionary values
         wells, hdrcl = [],[]
-        with open(self.file, 'rU') as file:
+        with open(self.file, 'r') as file:
             linereader = csv.reader(file, delimiter=',', quotechar='"')
             for i, line in enumerate(linereader):
                 if 'Data Type:' and 'Median' in line:
@@ -455,19 +414,20 @@ class Gcsv(object):
         # skip rows down to data, get first column value as index identifier
         data = pd.read_csv(self.file, sep=',', quotechar='"', skiprows=self.skrows,
                            nrows=self.samples-1, usecols=range(2,502))
-        data.shortname = pt.get_shn(self.file)
+        data.shortname = gt.get_shn(self.file)
         # retitle the index column name from Unnamed:0
-        data = data.set_index([self.wells])
+        data.index = get_3char_ids(self.wells)
         # give back the completed dataframe with row + column ids
         return data
 
     def transform_to_gct(self):
         df = self.build_dframe()
-        new_index = get_3char_ids(df.index)
-        df.index = new_index
+        #new_index = get_3char_ids(df.index)
+        #df.index = new_index
         # ref_file = '/Users/WRB/Dropbox/bin/python/analytes_to_probes_dict.p'
         ref_file = '/Users/WRB/Dropbox/bin/python/analytes_to_probes_dict.p'
-        analyte_dict = pickle.load(open(ref_file, 'rb'))
+        with open(ref_file, 'rb') as rf:
+            analyte_dict = pickle.load(rf)
         if 'DP52' in self.file:
             beadset_dict = analyte_dict['dp52']
         elif 'DP53' in self.file:
@@ -482,8 +442,8 @@ class Gcsv(object):
         df.columns = genes
         df.replace('NaN', 0)
         # del df['NaN']
-        wells = get_3char_ids(df.index)
-        df.index = wells
+        #wells = get_3char_ids(df.index)
+        #df.index = wells
         df = df.T
         return df
 

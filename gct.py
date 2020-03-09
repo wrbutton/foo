@@ -22,7 +22,7 @@ method for taking the average or the median of a panel.
 import pandas as pd
 import numpy as np
 import collections as cll
-import os, csv, sys, pickle, pt, gt
+import os, csv, sys, pickle, gt
 
 
 def open_gctx(path):
@@ -32,9 +32,9 @@ def open_gctx(path):
 def gather_wells(path, wellfile):
     # reads from a text file ('MKD031:A03' one or many per line) to assemble a dataframe
     # from a collection of wells from a range of plates. dir points to gct directory
-    fl = pt.get_flist(path, '.gct')
+    fl = gt.get_flist(path, '.gct')
     data, h = pd.DataFrame(), pd.DataFrame()
-    with open(wellfile, 'rU') as f:
+    with open(wellfile, 'r') as f:
         for line in f:
             plates = list(set([p.split(':')[0] for p in line.strip().split(',')]))
             wells = line.strip().split(',')
@@ -149,7 +149,7 @@ def save_headergct(df, h, outpath):
         wr.writerow(row)
         for col in h.columns:
             row = [col]
-            vals = [h.ix[w, col] if w in h.index.values else 0 for w in wells]
+            vals = [h.loc[w, col] if w in h.index.values else 0 for w in wells]
             row.extend(vals)
             wr.writerow(row)
     with open(outpath, 'a') as f:
@@ -200,11 +200,11 @@ def get_hd():
     hd = {'batch':'batch',     'det_well':'well',             'det_plate':'plate',
           'dose':'dose',         'concentration':'dose',    'pert_type':'type',
           'cell_id':'cell',    'pert_desc':'name',            'dilution':'dose', 'addr':'addr',
-          'dose [M]':'dose'}
+          'dose [M]':'dose',    'corr':'corr', 'all ccs':'all ccs', 'prom':'prom', 'all proms':'all proms'}
     return hd
 
 
-def extractgct(path):
+def builddframegct(path):
     """ bread and butter shortcut, pass path receive dataframe and header objs"""
     g = Gct(path)
     d, h = g.build_dframe()
@@ -212,40 +212,89 @@ def extractgct(path):
     return d, h
 
 
-def extract_multiple_gcts(pathlist, split=True):
+def extractgct(pathlist, split=True):
     """ automatically extract and concat dataframe and header files
     CARE MUST BE TAKEN THE FILES ARE OF THE SAME HEADER/MAP TYPE!
     the break argument will parse a single string of run-on gct paths and
     separate into a list of separate paths"""
-    if split is True:
-        pathlist = gt.splitpaths(pathlist, ext='.gct')
-        # special kludge for ease of use on main mac from path shortcut
+
+    pathlist = gt.splitpaths(pathlist, ext='.gct')
+
+    if not isinstance(pathlist, list):
+        pathlist = [pathlist]
+
+    if len(pathlist) == 1:
+        if os.path.isdir(pathlist[0]):
+            print(f'directory, getting all gcts')
+            pathlist = gt.get_flist(pathlist[0], ext='.gct')
+        else:
+            d, h = builddframegct(pathlist[0])
+            return d, h
+
     dlist, hlist = [], []
     for path in pathlist:
         print(path)
-        d, h = extractgct(path)
+        d, h = builddframegct(path)
         dlist.append(d)
-        hlist. append(h)
+        hlist.append(h)
     d = pd.concat(dlist, axis=1)
     h = pd.concat(hlist, axis=0)
     print('samples (d/h): ', len(d.columns), len(h.index))
+    d.name = dlist[0].name + '+'
+
     return d, h
 
 
-def extractheader(path):
+def openmap(path, ext='all'):
+    """ bulk map opening, flexible by type, but watch out for mismatched dimensions of different maps """
+    if isinstance(ext, str) and ext == 'all':
+        #exts = ['.gct', '.txt', '.xlsx', '.xls']
+        exts = ['.gct', '.txt', '.xlsx']
+    pathlist = []
+    if os.path.isdir(path):
+        for extsn in exts:
+            pathlist.extend(gt.get_flist(path, ext=extsn))
+    else:
+        pathlist = path
+        for extsn in exts:
+            pathlist = gt.splitpaths(pathlist, ext=extsn)
+        if isinstance(pathlist, str):
+            print('only one map')
+            combined = extractmap(path)
+            return combined
+        else:
+            combined = []
+            plates = [os.path.basename(x) for x in pathlist]
+            print(plates)
+            for file in pathlist:
+                combined.append(extractmap(file))
+            combined = pd.concat(combined, axis=0, sort=False)
+            if 'plate' not in combined.columns:
+                combined['plate'] = combined.index
+                combined.plate = combined.plate.apply(lambda x: x.split(':')[0])
+            return combined
+
+
+def extractmap(path):
+    """ will auto extract and concat the header info from gct header or a txt / xlsx map file """
     if path.endswith('.gct'):
         g = Gct(path)
         h = g.get_headers()
         return h
     # else assume
-    hd = get_hd()
-    if path.endswith('.txt'):
-        m = pd.read_table(path)
-    elif path.endswith('.xlsx') or path.endswith('.xls'):
-        m = pd.read_excel(path)
-    m.set_index('well', inplace=True)
-    m.columns = [hd[x] if x in hd.keys() else x for x in m.columns]
-    m.index = gt.addr_id_df(m.index, p=gt.get_shn(path).split('.')[0])
+    else:
+        hd = get_hd()
+        if path.endswith('.txt'):
+            m = pd.read_table(path)
+        elif path.endswith('.xlsx') or path.endswith('.xls'):
+            m = pd.read_excel(path)
+        else:
+            print(f'problem with {path}')
+        #m.set_index('well', inplace=True)
+        m.columns = [hd[x] if x in hd.keys() else x for x in m.columns]
+        m.index = gt.addr_id_df(m['well'], p=gt.get_shn(path).split('.')[0])
+        if 'dose' in m.columns:
+            m.dose = m.dose.apply(lambda x: gt.fix_dose_3dig(x))
     return m
 
 
@@ -256,9 +305,10 @@ class Gct(object):
         self.file = infile
         self.shortname = os.path.split(infile)[-1].split('_',1)[0]
 
+    # newly updated to auto-correct funky dose rounding from float point arithmatic
     def get_headers(self):
         # open file and extract the gct header information, storing dictionary values
-        with open(self.file, 'rU') as in_file:
+        with open(self.file, 'r') as in_file:
             line = in_file.readline()
             #check for .gct identity
             if line.strip() != '#1.3':
@@ -325,22 +375,55 @@ class Gct(object):
                     self.doses = fh[fh.index.isin(self.test)]['dose'].unique()
                 except KeyError:
                     pass
+
+                if 'dose' in fh.columns:
+                    dosecol = 'dose'
+                elif 'dilution' in fh.columns:
+                    dosecol = 'dilution'
+                else:
+                    dosecol = None
+
+                if dosecol is not None:
+                    try:
+                        fh[dosecol] = pd.to_numeric(fh[dosecol])
+                    except:
+                        try:
+                            for y in ['M', 'nm', 'nM', 'um', 'uM', 'µM']:
+                                fh[dosecol] = fh[dosecol].apply(lambda x: x.strip(y))
+                                fh[dosecol] = fh[dosecol].apply(lambda x: x.strip(f' {y}'))
+                        except:
+                            pass
+                        try:
+                            fh[dosecol] = pd.to_numeric(fh[dosecol])
+                        except:
+                            pass
+                    fh[dosecol] = fh[dosecol].apply(lambda x: gt.fix_dose_3dig(x))
             return fh
 
     def get_features(self):
         self.genes = []
         if not hasattr(self, 'skrows'):
             h = self.get_headers()
-        with open(self.file, 'rU') as in_file:
+        with open(self.file, 'r') as in_file:
             for i in range(self.skrows):
                 in_file.readline()
             for line in in_file:
                 self.genes.append(line.split('\t')[0].strip())
 
+    def get_wells(self):
+        wells = []
+        with open(self.file, 'r') as in_file:
+            for i in range(self.skrows):
+                in_file.readline()
+            myline = in_file.readline()
+            myline = myline.rstrip()
+            wellslist = myline.split('\t')[2:]
+        self.wells = wellslist
+
     def null_empty(self, data):
         # used to replace process control wells with 'nan' so they won't plot
         for w in self.empty:
-            data.ix[:,w] = np.nan
+            data.loc[:,w] = np.nan
         return data
 
     def build_dframe(self, nullempt=False):
@@ -427,9 +510,7 @@ class Gct(object):
 
 
 def main():
-    path = '/Users/WRB/Desktop/myzscore/SYA007_ZSVCQNORM_n170x978.gctMacintosh HD/Users/WRB/Desktop/myzscore/SYA008_ZSVCQNORM_n163x978.gctMacintosh HD/Users/WRB/Desktop/myzscore/SYA009_ZSVCQNORM_n169x978.gct'
-    d, h = extract_multiple_gcts(path)
-    d.head()
+    pass
 
 if __name__ == '__main__':
     main()
